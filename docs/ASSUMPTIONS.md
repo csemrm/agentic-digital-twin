@@ -43,6 +43,15 @@ Every modelling choice and parameter source. Update as phases land.
 - Gate loop cap: 3 diagnosis rounds. A round with no verified fix also counts toward the cap, and re-diagnosis skips stations previously found unfixable.
 - `SimulatedApprover` sees only presented evidence. With twin evidence it approves iff gain >= 2%. Without evidence (ablation, single agent) it can only check constraint validity, so a harmful-but-valid fix is approved. Injected bad recommendations are either invalid (buffer after the last station) or harmful (move 30% of a neighbour's work onto the diagnosed bottleneck). A real supervisor would be noisier; this is a stated limitation.
 
+## Baselines
+
+All four systems face the same gate, the same typed-action validator and the same 3-round cap.
+
+- **Rule-based**: acts only if output is >= 5% below reference (same trigger as the agents, so a healthy line is not penalised for a false alarm). Bottleneck = highest utilization (busy fraction only, ignoring downtime). Fix = add 3 buffer slots after it (before it if it is the last station). One gate round, no LLM.
+- **Single agent**: one `single_agent` call returns diagnosis plus one typed action; no simulation. It receives validator and gate rejections as feedback (extra LLM step each) and may retry up to the cap.
+- **Multi-agent without simulation** (ablation): the full graph with the Simulation node replaced by "take the first constraint-valid proposal, unverified".
+- In mock mode the single agent and the multi-agent roles share the same diagnosis and proposal heuristics, so mock differences come only from pipeline structure (verification, retries), not from different "intelligence".
+
 ## Validation tolerances
 
 - The capacity-bound test allows 3% over the analytic bound, since the bound is an expected rate and the test averages only 8 replications.

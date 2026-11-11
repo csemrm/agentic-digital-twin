@@ -127,8 +127,21 @@ def candidates_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {"candidates": cands[: payload.get("max_candidates", 5)], "rationale": f"Standard remedies for {kind.replace('_', ' ')} at station {s}."}
 
 
+def single_agent_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """One-shot diagnosis plus first proposed fix, reusing the same heuristics as the separate roles."""
+    obs, feedback = payload["observation"], payload.get("feedback", [])
+    diag = diagnosis_handler({"observation": obs, "feedback": []})
+    stations = [{"id": s["id"], "utilization": s["utilization"], "buffer_after_capacity": s["buffer_after_capacity"]} for s in obs["stations"]]
+    cands = candidates_handler(
+        {"diagnosis": diag, "stations": stations, "tried_actions": [f["action"] for f in feedback if "action" in f],
+         "seed": payload.get("seed", 1), "iteration": payload.get("iteration", 1), "max_candidates": 1}
+    )["candidates"]
+    return {**diag, "action": cands[0] if cands else None, "rationale": "Single-call diagnosis and fix."}
+
+
 MOCK_HANDLERS: dict[str, MockHandler] = {
     "monitor": monitor_handler,
     "diagnosis": diagnosis_handler,
     "candidates": candidates_handler,
+    "single_agent": single_agent_handler,
 }

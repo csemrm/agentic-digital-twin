@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from src.actions import RejectionLog, validate_and_apply
-from src.agents.gate import SimulatedApprover
+from src.agents.gate import SimulatedApprover, gate_entry
 from src.agents.observe import observe
 from src.agents.roles import run_candidates, run_diagnosis, run_monitor
 from src.agents.simulation import run_simulation_agent
@@ -116,23 +116,13 @@ class Pipeline:
 
     def _gate(self, state: PipelineState) -> dict[str, Any]:
         config, rec = self._config(state), Recommendation.model_validate(state["recommendation"])
-        injected = False
         if self.approver is not None:
-            rec, injected = self.approver.maybe_inject(rec, config, state["diagnosis"], self.settings)
-            decision = self.approver.decide(rec, config)
+            rec, decision, entry = self.approver.review(rec, config, state["diagnosis"], self.settings, state["iteration"])
         else:
             if not state.get("human_decision"):
                 raise RuntimeError("human gate reached without a decision")
             decision = GateDecision.model_validate(state["human_decision"])
-        entry = {
-            "iteration": state["iteration"],
-            "action": rec.action,
-            "verified": rec.verified,
-            "gain_pct": rec.evidence.gain_pct if rec.evidence else None,
-            "approved": decision.approved,
-            "reason": decision.reason,
-            "injected": injected,
-        }
+            entry = gate_entry(state["iteration"], rec, decision, False)
         feedback = list(state.get("feedback", []))
         if not decision.approved:
             feedback.append({"kind": "gate_rejected", "station": state["diagnosis"]["bottleneck_station"], "action": rec.action, "reason": decision.reason})

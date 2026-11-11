@@ -20,6 +20,19 @@ from src.agents.types import GateDecision, PipelineSettings, Recommendation
 from src.twin import LineConfig
 
 
+def gate_entry(iteration: int, rec: Recommendation, decision: GateDecision, injected: bool) -> dict[str, Any]:
+    """Log record of one gate review (shared by the graph and the baselines)."""
+    return {
+        "iteration": iteration,
+        "action": rec.action,
+        "verified": rec.verified,
+        "gain_pct": rec.evidence.gain_pct if rec.evidence else None,
+        "approved": decision.approved,
+        "reason": decision.reason,
+        "injected": injected,
+    }
+
+
 @dataclass
 class SimulatedApprover:
     """Rule-based stand-in for the human supervisor."""
@@ -49,6 +62,14 @@ class SimulatedApprover:
             return {"type": "add_buffer", "station": config.n_stations, "size": 2}
         neighbour = s - 1 if s > 1 else s + 1
         return {"type": "rebalance_task", "from_station": neighbour, "to_station": s, "fraction": 0.3}
+
+    def review(
+        self, rec: Recommendation, config: LineConfig, diagnosis: dict[str, Any], settings: PipelineSettings, iteration: int
+    ) -> tuple[Recommendation, GateDecision, dict[str, Any]]:
+        """Possibly inject a bad recommendation, decide, and return (presented rec, decision, log entry)."""
+        rec, injected = self.maybe_inject(rec, config, diagnosis, settings)
+        decision = self.decide(rec, config)
+        return rec, decision, gate_entry(iteration, rec, decision, injected)
 
     def decide(self, rec: Recommendation, config: LineConfig) -> GateDecision:
         """Approve or reject using only the evidence presented with ``rec``."""
