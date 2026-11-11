@@ -34,6 +34,15 @@ Every modelling choice and parameter source. Update as phases land.
 - A "step" is one LLM call, including cache hits and JSON repair re-asks. Tokens from cache hits are still counted (what a fresh run would spend).
 - Retries: exponential backoff (1, 2, 4, 8 s) on rate-limit, connection and 5xx errors; one repair re-ask on invalid JSON.
 
+## Agents and gate
+
+- Agents observe one simulated 8 h shift. They see engineered standard cycle times and current buffer capacities, but not the scenario label, MTBF/MTTR settings, or ground truth. "Normal output" (reference throughput) is the healthy line's mean over 5 fixed seeds.
+- Mock diagnosis uses *active period* bottleneck detection (highest busy + down fraction). Fault type rules: slow if measured cycle >= 1.15x standard, breakdowns if down >= 8%, buffer if buffer after the station <= 2 and it is blocked >= 5%, mixed if a second station also shows a fault signal. Output within 5% of reference counts as "no fault".
+- Mock candidate generator proposes the natural remedy first. On every 4th seed (first round only) its first proposal is deliberately over-aggressive, so the validator path is exercised. This is a test device, not evidence about LLMs.
+- Simulation agent: 8 replications on seeds 1000..1007, paired with the unmodified line; pass = mean gain >= 2% and one-sided paired t-test p < 0.05.
+- Gate loop cap: 3 diagnosis rounds. A round with no verified fix also counts toward the cap, and re-diagnosis skips stations previously found unfixable.
+- `SimulatedApprover` sees only presented evidence. With twin evidence it approves iff gain >= 2%. Without evidence (ablation, single agent) it can only check constraint validity, so a harmful-but-valid fix is approved. Injected bad recommendations are either invalid (buffer after the last station) or harmful (move 30% of a neighbour's work onto the diagnosed bottleneck). A real supervisor would be noisier; this is a stated limitation.
+
 ## Validation tolerances
 
 - The capacity-bound test allows 3% over the analytic bound, since the bound is an expected rate and the test averages only 8 replications.
