@@ -13,7 +13,7 @@ Multi-agent LLM system that monitors a simulated 5-station line (SimPy twin), di
 | 4 | LangGraph agents: Monitor, Diagnosis, Simulation, Supervisor gate | done |
 | 5 | Baselines: rule-based, single-agent, multi-agent without Simulation | done |
 | 6 | Evaluation harness, tables, plots, `results/summary.md` | done |
-| 7 | Streamlit dashboard | planned |
+| 7 | Streamlit dashboard | done |
 | 8 | README, ASSUMPTIONS, DEMO polish | planned |
 
 ## Twin (Phase 1)
@@ -46,5 +46,7 @@ Roles (`src/agents/`):
 4. **Supervisor gate** approves or rejects. Batch mode uses `SimulatedApprover` (sees only the evidence presented; can inject bad recommendations at a configurable rate). The dashboard uses a real person: the graph is compiled with `interrupt_before=["gate"]` and resumed via `submit_human_decision`.
 
 Only an approved fix is applied (`apply` re-validates). State is a typed dict with reducer-merged `trace`, `gate_log`, `diagnoses` and `action_rejections`. The ablation (`use_simulation=False`) swaps the Simulation node for "take the first constraint-valid proposal, unverified".
+
+Dashboard (`src/dashboard/`): `app.py` is a thin Streamlit script; `views.py` holds pure data-shaping helpers. It builds a `Pipeline` with `approver=None`, calls `start()` (runs to the gate), shows KPIs, findings, the candidate table and the trace, and the Approve/Reject buttons call `submit_human_decision`. Rejection re-runs Diagnosis and pauses at the gate again. Widget callbacks read `st.session_state` rather than bound args so stale values are never used.
 
 Mock mode: `src/agents/mock_roles.py` provides rule-based role handlers (active-period bottleneck detection). Everything runs offline; see ASSUMPTIONS.md for what mock results do and do not mean.
