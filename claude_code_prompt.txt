@@ -1,0 +1,87 @@
+You are building a complete, working research prototype called "Agentic Digital Twin for Shop-Floor Performance". Build it end to end in this folder, working in the phases below. After each phase, run the tests, fix failures, and give me a 3-line status before continuing. Do not ask me questions unless you are truly blocked; make reasonable choices and document them in docs/ASSUMPTIONS.md.
+
+## 1. Project summary
+A multi-agent LLM system monitors a simulated 5-station production line (a SimPy digital twin), diagnoses throughput losses, tests candidate fixes inside the twin, and only then recommends the best one to a human supervisor. Core principle: VERIFY BEFORE ACT. No recommendation reaches the operator until the twin has shown it improves throughput, and nothing is applied without human approval.
+
+Research questions:
+- RQ1: Does a multi-agent design find the true bottleneck more accurately than a single LLM agent?
+- RQ2: Does simulating fixes before recommending them improve recommendation quality?
+- RQ3: How often does the human gate catch a harmful or invalid recommendation?
+
+## 2. Tech stack
+Python 3.11+, SimPy (twin), LangGraph (orchestration), Anthropic API via the `anthropic` SDK (model name read from env var LLM_MODEL, default to a small/cheap model), Streamlit (supervisor dashboard), pandas, matplotlib, pytest, pydantic. Use a pyproject.toml or requirements.txt, a .env.example (ANTHROPIC_API_KEY, LLM_MODEL), and a Makefile with targets: setup, test, run-experiments, dashboard.
+
+Out of scope: real PLC/OPC UA, computer vision, multi-plant scheduling. Fully simulated, no proprietary data.
+
+## 3. Repository layout
+```
+src/
+  twin/          # SimPy line, stations, buffers, breakdowns, KPI collector
+  scenarios/     # seeded fault scenarios
+  actions/       # typed action schema + validator + applier
+  agents/        # monitor, diagnosis, simulation, supervisor gate, LangGraph graph
+  baselines/     # rule_based.py, single_agent.py
+  llm/           # client wrapper with caching, token counting, mock mode
+  eval/          # metrics, runner, analysis, plots
+  dashboard/     # Streamlit app
+tests/
+docs/            # ASSUMPTIONS.md, ARCHITECTURE.md, RESULTS.md
+results/         # CSVs, plots, cached LLM runs
+README.md
+```
+
+## 4. Phase 1: Digital twin and scenarios
+- Discrete-event SimPy model of a 5-station serial line with finite buffers between stations.
+- Per-station parameters: mean cycle time, cycle-time variability (e.g. lognormal or triangular), MTBF, MTTR, buffer capacity. Base parameters on a published line-balancing example; document the choice in ASSUMPTIONS.md.
+- KPI collector over rolling windows: throughput (units/shift), per-station utilization, blocked time, starved time, queue lengths, breakdown counts, WIP.
+- Event log (breakdown start/end, blocked/starved events) available to agents as structured JSON.
+- Deterministic given a seed; support running a shift (e.g. 8 hours simulated) quickly, and running N replications with different seeds.
+- Seeded fault scenarios, each with a known ground-truth bottleneck label: (a) slow station, (b) frequent breakdowns, (c) starved buffer / undersized buffer, (d) mixed faults. Also a healthy baseline scenario.
+- Validate the twin: tests for Little's law sanity, throughput bounded by slowest station, reproducibility by seed, and that each fault scenario actually lowers throughput versus healthy.
+
+## 5. Phase 2: Typed actions
+Agents may only propose actions from a fixed typed set (pydantic models): AddBuffer(station, size), RebalanceTask(from_station, to_station, fraction), ChangeMaintenance(station, interval_or_mttr_change). Include constraint validation (buffer limits, rebalance bounds, maintenance limits) and an applier that returns a modified twin config. Reject anything not in the schema or violating constraints, and log the rejection reason. This is the safety mechanism against unsafe LLM fixes.
+
+## 6. Phase 3: LLM layer
+- Wrapper around the Anthropic API with: on-disk response caching keyed by (model, prompt hash), token and step counting per run, retry/backoff for rate limits, and structured JSON output validation.
+- A deterministic MOCK mode (no API key needed) that returns plausible scripted responses so the whole pipeline and test suite run offline. Tests must never require a real API key.
+
+## 7. Phase 4: Agents (LangGraph)
+Build the loop as a LangGraph graph with shared typed state:
+1. Monitor agent: reads KPIs and events from the twin, flags anomalies (throughput drop, utilization/blocked/starved patterns), outputs a structured summary.
+2. Diagnosis agent: identifies the bottleneck station and fault type from the monitor summary, with a plain-language explanation and confidence.
+3. Simulation agent (key step): generates candidate fixes as typed actions, runs EACH in the twin across several seeded replications, compares throughput against the unmodified line, and passes on only fixes with a statistically meaningful throughput gain and no constraint violations. Returns ranked results with numbers.
+4. Human supervisor gate: in batch/eval mode use a configurable simulated approver (approve if validated and gain above threshold; also able to inject occasional bad recommendations to measure RQ3); in the dashboard it is a real approve/reject button. A rejection routes back to Diagnosis for re-diagnosis (cap the loop at a max number of iterations).
+Only an approved fix is applied to the twin. Log every step.
+
+## 8. Phase 5: Baselines
+- Rule-based: flag the station with the highest utilization as the bottleneck and apply a fixed heuristic fix (e.g. add a buffer after it).
+- Single-agent LLM: one agent with the same tools and same typed action set, no separate roles, and NO simulate-before-recommend step (so RQ1 and RQ2 isolate the design differences). Also implement an ablation of the multi-agent system without the Simulation agent so RQ2 is directly testable.
+
+## 9. Phase 6: Evaluation harness
+Run every system (rule-based, single-agent, multi-agent, multi-agent without simulation) on the same seeded scenarios with multiple seeds each. Compute and save to results/:
+- Bottleneck accuracy (%): diagnosis matches the seeded fault (answers RQ1)
+- Throughput gain (%): units/shift after the fix vs before (RQ2)
+- Invalid-fix rate (%): recommendations that break constraints or lower output (RQ2, RQ3)
+- Steps and tokens per run (RQ1 cost)
+- Explanation quality (1-5): implement an LLM-as-judge rubric run in mock/real mode, plus a CSV template for 2-3 human reviewers to score manually (RQ3)
+- Human-gate catch rate: how often the gate rejected a harmful/invalid recommendation (RQ3)
+Produce summary tables with mean and confidence intervals, and matplotlib plots (grouped bar charts per metric per system per scenario). Write a results/summary.md that answers RQ1-RQ3 explicitly from the data and states limitations honestly. Do not fabricate numbers: everything in docs/RESULTS.md must come from actual runs. If you ran in mock mode, label results as mock.
+
+## 10. Phase 7: Streamlit dashboard
+Supervisor dashboard with: scenario picker and seed, live KPI charts of the line, the Monitor/Diagnosis findings, a table of simulated candidate fixes with before/after throughput, and Approve / Reject buttons that drive the human gate (rejection triggers re-diagnosis). Show the agent trace and token usage. Add a simple architecture diagram in the sidebar or docs.
+
+## 11. Phase 8: Docs and polish
+- README.md: what it is, architecture diagram (mermaid), quickstart (setup, mock mode, real LLM mode), how to reproduce experiments, how to launch the dashboard, project structure, limitations.
+- docs/ARCHITECTURE.md describing the four roles, the typed-action safety layer, and the verify-before-act loop.
+- docs/ASSUMPTIONS.md listing every modelling assumption and parameter source.
+- A 5-minute demo script (docs/DEMO.md).
+
+## 12. Quality bar and working rules
+- Type hints, docstrings on public functions, small modules, no dead code.
+- pytest suite covering twin validity, action validation, graph routing (including the rejection loop and iteration cap), baselines, and metrics, all passing offline via mock mode.
+- Keep API cost low: cache everything, default to the small model, keep prompts compact.
+- Use git: initialize a repo and commit after each phase with a clear message.
+- At the end, run `make test` and `make run-experiments` (mock mode is fine if no key), then summarize: what was built, how to run it, results, known limitations, and suggested next steps.
+
+Start with Phase 1 now. Begin by creating the repo skeleton and a short plan in docs/ARCHITECTURE.md, then implement the twin.
