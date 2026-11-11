@@ -27,6 +27,13 @@ Every modelling choice and parameter source. Update as phases land.
 - `ChangeMaintenance`: only stations with a failure model; `mtbf_multiplier` in [1, 2], `mttr_multiplier` in [0.5, 1] (improvements only, no-ops rejected).
 - These limits are illustrative engineering bounds, not derived from a real plant. Anything outside the pydantic schema (unknown type, extra field, wrong type) is rejected with a logged reason.
 
+## LLM layer
+
+- Default model `claude-haiku-5-5` (override with `LLM_MODEL`). Mode is `mock` unless `ANTHROPIC_API_KEY` is set (or `LLM_MODE=real` is forced). No sampling parameters are passed; determinism across reruns comes from the on-disk cache keyed by (model, system prompt, user prompt).
+- Mock mode uses scripted, rule-based role handlers and character-based token estimates (about 4 chars/token). **Mock results exercise the pipeline; they say nothing about real LLM quality** and are labelled as mock everywhere.
+- A "step" is one LLM call, including cache hits and JSON repair re-asks. Tokens from cache hits are still counted (what a fresh run would spend).
+- Retries: exponential backoff (1, 2, 4, 8 s) on rate-limit, connection and 5xx errors; one repair re-ask on invalid JSON.
+
 ## Validation tolerances
 
 - The capacity-bound test allows 3% over the analytic bound, since the bound is an expected rate and the test averages only 8 replications.
