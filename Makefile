@@ -1,9 +1,10 @@
 PY ?= .venv/bin/python
+PYTHON ?= python3
 
 .PHONY: setup test run-experiments dashboard
 
 setup:
-	python3.11 -m venv .venv
+	$(PYTHON) -m venv .venv
 	$(PY) -m pip install -q -e .
 
 test:

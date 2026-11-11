@@ -54,7 +54,8 @@ def test_wilson_interval_known_values() -> None:
     lo, hi = analysis.wilson_ci(5, 10)
     assert lo == pytest.approx(0.2366, abs=1e-3) and hi == pytest.approx(0.7634, abs=1e-3)
     lo, hi = analysis.wilson_ci(10, 10)
-    assert hi == pytest.approx(1.0) and lo < 1.0
+    assert hi == 1.0 and lo < 1.0
+    assert analysis.wilson_ci(0, 10)[0] == 0.0  # never negative
     assert all(math.isnan(v) for v in analysis.wilson_ci(0, 0))
 
 

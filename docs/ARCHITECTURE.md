@@ -14,7 +14,7 @@ Multi-agent LLM system that monitors a simulated 5-station line (SimPy twin), di
 | 5 | Baselines: rule-based, single-agent, multi-agent without Simulation | done |
 | 6 | Evaluation harness, tables, plots, `results/summary.md` | done |
 | 7 | Streamlit dashboard | done |
-| 8 | README, ASSUMPTIONS, DEMO polish | planned |
+| 8 | README, ASSUMPTIONS, DEMO polish | done |
 
 ## Twin (Phase 1)
 

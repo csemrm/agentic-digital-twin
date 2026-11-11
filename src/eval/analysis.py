@@ -21,7 +21,7 @@ def wilson_ci(k: float, n: int, z: float = 1.96) -> tuple[float, float]:
     denom = 1 + z * z / n
     centre = (p + z * z / (2 * n)) / denom
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
-    return centre - half, centre + half
+    return max(0.0, centre - half), min(1.0, centre + half)
 
 
 def mean_ci(values: pd.Series, binary: bool) -> tuple[int, float, float, float]:
