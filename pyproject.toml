@@ -1,0 +1,30 @@
+[project]
+name = "agentic-twin"
+version = "0.1.0"
+description = "Multi-agent LLM system verifying shop-floor fixes in a SimPy digital twin"
+requires-python = ">=3.11"
+dependencies = [
+  "simpy>=4.1",
+  "langgraph>=0.2",
+  "anthropic>=0.40",
+  "streamlit>=1.38",
+  "pandas>=2.0",
+  "matplotlib>=3.8",
+  "pydantic>=2.6",
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "python-dotenv>=1.0",
+  "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
