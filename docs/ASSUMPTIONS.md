@@ -20,6 +20,13 @@ Every modelling choice and parameter source. Update as phases land.
 - `mixed`: station 4 MTBF 800 / MTTR 400 (primary) plus station 2 at 75 s (secondary). Truth station 4, chosen because it has the lowest analytic effective capacity; tests assert this.
 - Analytic effective capacity = cycle time / availability, availability = MTBF / (MTBF + MTTR). It ignores buffering effects, so it is only used to label slow-station, breakdown and mixed scenarios.
 
+## Action constraints (safety layer)
+
+- `AddBuffer`: stations 1..4, adds 1..5 slots, total capacity capped at 12.
+- `RebalanceTask`: adjacent stations only, fraction in (0, 0.30]; moves `fraction x` the source station's mean cycle time to the destination (total work conserved).
+- `ChangeMaintenance`: only stations with a failure model; `mtbf_multiplier` in [1, 2], `mttr_multiplier` in [0.5, 1] (improvements only, no-ops rejected).
+- These limits are illustrative engineering bounds, not derived from a real plant. Anything outside the pydantic schema (unknown type, extra field, wrong type) is rejected with a logged reason.
+
 ## Validation tolerances
 
 - The capacity-bound test allows 3% over the analytic bound, since the bound is an expected rate and the test averages only 8 replications.

@@ -8,7 +8,7 @@ Multi-agent LLM system that monitors a simulated 5-station line (SimPy twin), di
 |---|---|---|
 | 0 | Skeleton, packaging, Makefile | done |
 | 1 | Twin, KPI collector, event log, seeded scenarios, validity tests | done |
-| 2 | Typed actions (pydantic), validator, applier | planned |
+| 2 | Typed actions (pydantic), validator, applier | done |
 | 3 | LLM wrapper: disk cache, token counts, retry, JSON validation, mock mode | planned |
 | 4 | LangGraph agents: Monitor, Diagnosis, Simulation, Supervisor gate | planned |
 | 5 | Baselines: rule-based, single-agent, multi-agent without Simulation | planned |
