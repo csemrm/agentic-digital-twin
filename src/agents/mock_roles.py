@@ -8,6 +8,7 @@ produced with them measure the pipeline, not the quality of a real LLM.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from src.llm.backends import MockHandler
@@ -139,9 +140,31 @@ def single_agent_handler(payload: dict[str, Any]) -> dict[str, Any]:
     return {**diag, "action": cands[0] if cands else None, "rationale": "Single-call diagnosis and fix."}
 
 
+def judge_handler(payload: dict[str, Any]) -> dict[str, Any]:
+    """Lexical rubric stand-in for the judge: label match, count of cited numbers, length. Not a quality measure."""
+    text, claimed, ref = payload["explanation"], payload["claimed"], payload["reference"]
+    station_ok = claimed["station"] == ref["station"]
+    type_ok = claimed["fault_type"] == ref["fault_type"] or (
+        ref["fault_type"] == "mixed" and claimed["fault_type"] in ("breakdowns", "slow_station")
+    )
+    correctness = 5 if station_ok and type_ok else 3 if station_ok else 1
+    numbers = len(re.findall(r"\d+(?:\.\d+)?%?", text))
+    evidence = 1 if numbers == 0 else min(5, 1 + numbers)
+    words = len(text.split())
+    clarity = 5 if 12 <= words <= 60 else 3 if words >= 5 else 1
+    return {
+        "correctness": correctness,
+        "evidence": evidence,
+        "clarity": clarity,
+        "overall": round((correctness + evidence + clarity) / 3, 2),
+        "comment": "mock lexical rubric",
+    }
+
+
 MOCK_HANDLERS: dict[str, MockHandler] = {
     "monitor": monitor_handler,
     "diagnosis": diagnosis_handler,
     "candidates": candidates_handler,
     "single_agent": single_agent_handler,
+    "judge": judge_handler,
 }

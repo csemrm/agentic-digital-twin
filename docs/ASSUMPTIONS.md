@@ -52,6 +52,17 @@ All four systems face the same gate, the same typed-action validator and the sam
 - **Multi-agent without simulation** (ablation): the full graph with the Simulation node replaced by "take the first constraint-valid proposal, unverified".
 - In mock mode the single agent and the multi-agent roles share the same diagnosis and proposal heuristics, so mock differences come only from pipeline structure (verification, retries), not from different "intelligence".
 
+## Evaluation metrics
+
+- Two experiments over the same grid (4 systems x 5 scenarios x N seeds, observation seeds 1..N, default N=10): `clean` (approver never injects) answers RQ1 and RQ2; `stress` (approver injects a bad recommendation with probability 0.5 per review) answers RQ3. Injection draws are seeded per (scenario, seed) and identical across systems, so systems face the same injections.
+- **Bottleneck accuracy**: station of the *first* diagnosis equals the seeded station; on the healthy line, correct means reporting no fault. Fault-type accuracy accepts `breakdowns` or `slow_station` for a `mixed` scenario; the rule-based baseline gives no type (excluded).
+- **Throughput gain**: mean throughput of the final config vs the scenario config over 20 independent replications (seeds 2000..2019, disjoint from the Simulation agent's 1000..1007 and the observation seeds); 0 when nothing is applied. Reported as a mean over runs, so no-action runs pull it down.
+- **Invalid/harmful-fix**: a non-injected recommendation that reached the gate is invalid (breaks schema or constraints) or harmful (independent gain below -1%). **Ineffective-fix**: an applied fix with independent gain below 2%.
+- **Gate catch rate**: among gate reviews of bad recommendations (invalid or harmful by the independent evaluation, injected or not), the share rejected. Computed in the stress experiment only.
+- **Steps/tokens**: from the usage meter (judge calls excluded).
+- **Explanation quality**: judge scores the first diagnosis's explanation on correctness, evidence and clarity (1-5, overall = mean). Judge sees the reference label. Mock mode uses a lexical rubric. The human template (`results/human_review_template.csv`) is blind (shuffled; system names only in `human_review_key.csv`), 2 seeds per system-scenario cell.
+- CIs: Wilson for proportions, t-interval for means, paired bootstrap (2000 resamples) for differences between systems on shared (scenario, seed) pairs over the 4 fault scenarios.
+
 ## Validation tolerances
 
 - The capacity-bound test allows 3% over the analytic bound, since the bound is an expected rate and the test averages only 8 replications.
