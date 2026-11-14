@@ -30,5 +30,13 @@
     "single_agent",
     "multi_agent_no_sim",
     "multi_agent"
+  ],
+  "experiments": [
+    "clean",
+    "stress",
+    "clean_indep",
+    "stress_indep",
+    "stress_forged",
+    "stress_forged_indep"
   ]
 }

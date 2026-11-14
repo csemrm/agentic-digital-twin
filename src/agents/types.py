@@ -77,6 +77,7 @@ class GateDecision(BaseModel):
 
     approved: bool
     reason: str
+    independent_gain_pct: float | None = None  # set only by a gate that re-simulates on its own seeds
 
 
 @dataclass(frozen=True)

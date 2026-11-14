@@ -43,6 +43,15 @@ Every modelling choice and parameter source. Update as phases land.
 - Gate loop cap: 3 diagnosis rounds. A round with no verified fix also counts toward the cap, and re-diagnosis skips stations previously found unfixable.
 - `SimulatedApprover` sees only presented evidence. With twin evidence it approves iff gain >= 2%. Without evidence (ablation, single agent) it can only check constraint validity, so a harmful-but-valid fix is approved. Injected bad recommendations are either invalid (buffer after the last station) or harmful (move 30% of a neighbour's work onto the diagnosed bottleneck). A real supervisor would be noisier; this is a stated limitation.
 
+### Gate ablation (independent re-simulation)
+
+The default gate trusts presented evidence, so a catch rate of 100% for twin-verified systems is partly structural: the gate applies the threshold the Simulation agent already applied. Four extra arms (runner default; `--no-gate-arms` skips them) test that:
+
+- `IndependentApprover` ignores presented evidence. It validates the action, then re-simulates it on its own seeds (3000+, disjoint from observation 1..N, reference 100..104, Simulation agent 1000+ and scoring 2000+) with the Simulation agent's test (2% gain, alpha 0.05, `n_reps` pairs), and decides on that alone. Fixes with no evidence are re-simulated too, so the gate, not the proposer, is the verifier. It uses the same twin as the proposer: it removes selection bias and forged or stale evidence, not model mismatch.
+- `forge_evidence` makes an injected bad fix carry the real fix's evidence (stale or fabricated numbers). It only applies to systems that present evidence; for the others the forged arms equal the honest ones.
+- Arms: `clean_indep`, `stress_indep`, `stress_forged`, `stress_forged_indep`, with the same injection draws as `clean`/`stress` (paired). "Bad" is always judged by the independent scoring replications (seeds 2000+), never by either gate.
+- Cost: 2 x `n_reps` extra twin simulations per gate review.
+
 ## Baselines
 
 All six systems face the same gate, the same typed-action validator and the same 3-round cap. All act only on a >= 5% throughput drop, so a healthy line is not penalised for a false alarm.

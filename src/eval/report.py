@@ -101,6 +101,47 @@ def _baseline_section(clean: pd.DataFrame, overall: pd.DataFrame) -> list[str]:
     return out
 
 
+def _catch_cell(by_sys: pd.DataFrame, system: str) -> str:
+    r = by_sys[by_sys["system"] == system]
+    return f"{100 * r['catch_rate'].iloc[0]:.0f}% (n={int(r['bad_reviews'].iloc[0])})" if len(r) else "n/a"
+
+
+def _gate_section(runs: pd.DataFrame, reviews: pd.DataFrame) -> list[str]:
+    """Ablation of the gate itself: trusting presented evidence vs re-simulating on independent seeds."""
+    have = set(runs["experiment"])
+    if not {"stress_forged", "stress_forged_indep", "stress_indep", "clean_indep"} <= have:
+        return []
+    arms = [("stress", "honest evidence, trusting gate"), ("stress_indep", "honest evidence, independent gate"),
+            ("stress_forged", "forged evidence, trusting gate"), ("stress_forged_indep", "forged evidence, independent gate")]
+    catch = {a: analysis.gate_catch_table(reviews[reviews["experiment"] == a], ["system"]) for a, _ in arms}
+    systems = [s for s in SYSTEM_ORDER if s in set(runs["system"])]
+    out = ["## Does the gate need to trust the evidence? (independent re-simulation)", "",
+           "The default gate approves a verified fix iff the *presented* twin evidence clears the threshold, so a fix that arrives with stale or fabricated "
+           "evidence is approved on its numbers. The independent gate ignores presented evidence: it validates the action, then re-simulates it on its own "
+           "seeds (3000+, disjoint from the Simulation agent's 1000+ and the scoring seeds 2000+) with the same test, and decides on that alone. "
+           "In the forged arms every injected bad fix that has evidence carries the real fix's evidence. 'Bad' is judged by the independent scoring "
+           "replications, not by either gate.", "",
+           "Catch rate over bad recommendations reaching the gate (stress experiments):", "",
+           md_table(["System"] + [label for _, label in arms], [[s] + [_catch_cell(catch[a], s) for a, _ in arms] for s in systems]), ""]
+    fa = runs[runs["scenario"].isin(FAULT_SCENARIOS)]
+    rows = []
+    for s in systems:
+        row = [s]
+        for exp in ("clean", "clean_indep"):
+            g = fa[(fa["system"] == s) & (fa["experiment"] == exp)]
+            n, m, lo, hi = analysis.mean_ci(g["gain_pct"], False)
+            row += [f"{m:.1f} [{lo:.1f}, {hi:.1f}]" if n > 1 else f"{m:.1f}", f"{100 * g['applied'].mean():.0f}%"]
+        rows.append(row)
+    out += ["Cost of independence on good fixes (clean experiment, fault scenarios; no bad recommendations injected):", "",
+            md_table(["System", "Gain %, trusting gate", "Fixes applied", "Gain %, independent gate", "Fixes applied"], rows), "",
+            "Reading: with forged evidence the trusting gate can only catch invalid actions, so a harmful-but-valid fix that arrives with good-looking numbers "
+            "escapes. The independent gate catches it because it never uses those numbers. The price is extra twin simulations per review (2 x n_reps) and the gate "
+            "itself becoming the verifier: a system with no Simulation step is also checked, so differences in fix safety between systems shrink under this gate. "
+            "The re-simulation uses the same twin as the proposer, so it removes selection bias and forgery but not model mismatch; a real sim-to-real gap needs a "
+            "mis-specified-twin experiment.", ""]
+    return out
+
+
 def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFrame, summary: pd.DataFrame, catch_overall: pd.DataFrame, meta: dict[str, Any]) -> str:
     """Assemble the markdown report; every number comes from ``runs``/``reviews``."""
     clean = runs[runs["experiment"] == "clean"]
@@ -161,6 +202,7 @@ def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFram
             f"{verdict(d2s[0], d2s[1], d2s[2], d2s[3], ' pp of throughput')}. Note that the Simulation agent picks the best-measured candidate from the same proposal list, "
             "so a positive gain difference partly reflects selection among candidates rather than better proposals.", ""]
     out += _baseline_section(clean, overall)
+    out += _gate_section(runs, reviews)
 
     def rate(system: str, status: str) -> str:
         r = by_status[(by_status["system"] == system) & (by_status["status"] == status)]
@@ -174,8 +216,8 @@ def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFram
             + ", ".join(f"{s} {rate(s, 'invalid')}" for s in _systems(runs)) + ". "
             "Harmful-but-valid recommendations caught: "
             + ", ".join(f"{s} {rate(s, 'harmful')}" for s in _systems(runs)) + ". "
-            "By design of the simulated approver, harmful-but-valid fixes can only be caught when twin numbers are shown (multi-agent), so read the harmful row as a check "
-            "of that mechanism rather than an independent finding. A real supervisor's catch rate needs human data (the dashboard has the real gate).", "",
+            "By design of the default simulated approver, harmful-but-valid fixes can only be caught when twin numbers are shown (multi-agent), so read the harmful row as a check "
+            "of that mechanism rather than an independent finding; the independent-gate section above tests what happens when those numbers cannot be trusted. A real supervisor's catch rate needs human data (the dashboard has the real gate).", "",
             "## Limitations", "",
             "- The twin is both the world the agents observe and the verifier they use, so there is no model mismatch: verified gains are real inside the simulation by definition. Real plants would add a sim-to-real gap.",
             "- Fault scenarios are synthetic, few (5) and chosen by the authors; ground truth is exact only because the faults are seeded. Line parameters are illustrative, not from a real plant.",

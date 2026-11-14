@@ -127,9 +127,37 @@ Multi-agent with simulation vs without (clean experiment, fault scenarios). Thro
 
 Cost: `twin_search` spends about 496 twin simulations per run on a fault line and no tokens; multi-agent tests at most the proposer's candidate list (default 5) per round with 1976 [1966, 1987] tokens. Exhaustive twin search gains more throughput than multi-agent, so on this 5-station grid the proposer's shortlist, not the twin, limits the multi-agent result; the LLM roles are not what produces the gain. What the multi-agent system still offers over `twin_search` is a diagnosis and an explanation, which the search does not produce: it makes no diagnosis, so its station accuracy is only the station its best fix targets and its fault type is not scored. Its candidate grid is limited to the typed action set, as for every system. In mock mode the multi-agent proposer is rule-based, so this comparison says nothing about LLM-proposed candidates.
 
+## Does the gate need to trust the evidence? (independent re-simulation)
+
+The default gate approves a verified fix iff the *presented* twin evidence clears the threshold, so a fix that arrives with stale or fabricated evidence is approved on its numbers. The independent gate ignores presented evidence: it validates the action, then re-simulates it on its own seeds (3000+, disjoint from the Simulation agent's 1000+ and the scoring seeds 2000+) with the same test, and decides on that alone. In the forged arms every injected bad fix that has evidence carries the real fix's evidence. 'Bad' is judged by the independent scoring replications, not by either gate.
+
+Catch rate over bad recommendations reaching the gate (stress experiments):
+
+| System | honest evidence, trusting gate | honest evidence, independent gate | forged evidence, trusting gate | forged evidence, independent gate |
+|---|---|---|---|---|
+| rule_based | 60% (n=20) | 100% (n=20) | 60% (n=20) | 100% (n=20) |
+| toc_heuristic | 60% (n=20) | 100% (n=20) | 60% (n=20) | 100% (n=20) |
+| twin_search | 100% (n=38) | 100% (n=38) | 63% (n=30) | 100% (n=38) |
+| single_agent | 66% (n=29) | 100% (n=39) | 66% (n=29) | 100% (n=39) |
+| multi_agent_no_sim | 63% (n=30) | 100% (n=40) | 63% (n=30) | 100% (n=40) |
+| multi_agent | 100% (n=38) | 100% (n=38) | 63% (n=30) | 100% (n=38) |
+
+Cost of independence on good fixes (clean experiment, fault scenarios; no bad recommendations injected):
+
+| System | Gain %, trusting gate | Fixes applied | Gain %, independent gate | Fixes applied |
+|---|---|---|---|---|
+| rule_based | 0.4 [0.1, 0.6] | 100% | 0.1 [-0.1, 0.4] | 2% |
+| toc_heuristic | 13.5 [12.3, 14.7] | 100% | 13.5 [12.3, 14.7] | 100% |
+| twin_search | 17.7 [16.7, 18.6] | 100% | 17.7 [16.7, 18.6] | 100% |
+| single_agent | 13.1 [11.6, 14.7] | 100% | 13.1 [11.6, 14.7] | 100% |
+| multi_agent_no_sim | 13.1 [11.6, 14.7] | 100% | 13.1 [11.6, 14.7] | 100% |
+| multi_agent | 16.7 [15.2, 18.2] | 100% | 16.7 [15.2, 18.2] | 100% |
+
+Reading: with forged evidence the trusting gate can only catch invalid actions, so a harmful-but-valid fix that arrives with good-looking numbers escapes. The independent gate catches it because it never uses those numbers. The price is extra twin simulations per review (2 x n_reps) and the gate itself becoming the verifier: a system with no Simulation step is also checked, so differences in fix safety between systems shrink under this gate. The re-simulation uses the same twin as the proposer, so it removes selection bias and forgery but not model mismatch; a real sim-to-real gap needs a mis-specified-twin experiment.
+
 **RQ3: How often does the human gate catch a harmful or invalid recommendation?**
 
-Overall catch rate over bad recommendations that reached the gate: rule_based 60%, toc_heuristic 60%, twin_search 100%, single_agent 66%, multi_agent_no_sim 63%, multi_agent 100%. Invalid recommendations caught: rule_based 100% (n=12), toc_heuristic 100% (n=12), twin_search 100% (n=22), single_agent 100% (n=19), multi_agent_no_sim 100% (n=19), multi_agent 100% (n=22). Harmful-but-valid recommendations caught: rule_based 0% (n=8), toc_heuristic 0% (n=8), twin_search 100% (n=16), single_agent 0% (n=10), multi_agent_no_sim 0% (n=11), multi_agent 100% (n=16). By design of the simulated approver, harmful-but-valid fixes can only be caught when twin numbers are shown (multi-agent), so read the harmful row as a check of that mechanism rather than an independent finding. A real supervisor's catch rate needs human data (the dashboard has the real gate).
+Overall catch rate over bad recommendations that reached the gate: rule_based 60%, toc_heuristic 60%, twin_search 100%, single_agent 66%, multi_agent_no_sim 63%, multi_agent 100%. Invalid recommendations caught: rule_based 100% (n=12), toc_heuristic 100% (n=12), twin_search 100% (n=22), single_agent 100% (n=19), multi_agent_no_sim 100% (n=19), multi_agent 100% (n=22). Harmful-but-valid recommendations caught: rule_based 0% (n=8), toc_heuristic 0% (n=8), twin_search 100% (n=16), single_agent 0% (n=10), multi_agent_no_sim 0% (n=11), multi_agent 100% (n=16). By design of the default simulated approver, harmful-but-valid fixes can only be caught when twin numbers are shown (multi-agent), so read the harmful row as a check of that mechanism rather than an independent finding; the independent-gate section above tests what happens when those numbers cannot be trusted. A real supervisor's catch rate needs human data (the dashboard has the real gate).
 
 ## Limitations
 
