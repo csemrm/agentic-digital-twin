@@ -70,8 +70,13 @@ def _derived_diagnosis(action: dict[str, Any]) -> dict[str, Any]:
             "explanation": f"No diagnosis performed. Best verified fix from the exhaustive twin search targets station {station}."}
 
 
-def run_twin_search(scenario: Scenario, seed: int, approver: SimulatedApprover, settings: PipelineSettings | None = None) -> RunRecord:
-    """Search the grid, offer verified fixes best-first to the gate, stop at the first approval or the round cap."""
+def run_twin_search(
+    scenario: Scenario, seed: int, approver: SimulatedApprover, settings: PipelineSettings | None = None, twin: LineConfig | None = None
+) -> RunRecord:
+    """Search the grid, offer verified fixes best-first to the gate, stop at the first approval or the round cap.
+
+    ``twin`` is the (possibly mis-specified) model searched and shown to the gate; observation and application use the real line.
+    """
     settings = settings or PipelineSettings()
     config = scenario.config
     obs = observe(config, seed).payload
@@ -82,8 +87,9 @@ def run_twin_search(scenario: Scenario, seed: int, approver: SimulatedApprover, 
         diag = {"bottleneck_station": None, "fault_type": "none", "explanation": "Output normal.", "confidence": 1.0}
         return RunRecord(**base, outcome="no_fault", iterations=0, diagnoses=[diag], gate_log=[], applied_action=None,
                          final_config=config.model_dump(), trace=trace)
-    ranked = search(config, settings)
-    usage["twin_sims"] = sims_per_search(config, settings)
+    model = twin if twin is not None else config
+    ranked = search(model, settings)
+    usage["twin_sims"] = sims_per_search(model, settings)
     passed = [c for c in ranked if c.passed]
     trace.append({"step": "twin_search", "detail": f"simulated {len(ranked)} grid actions ({usage['twin_sims']} runs); {len(passed)} passed"})
     if not passed:
@@ -97,7 +103,7 @@ def run_twin_search(scenario: Scenario, seed: int, approver: SimulatedApprover, 
         diag = _derived_diagnosis(cand.action)
         diagnoses.append(diag)
         rec = Recommendation(action=cand.action, rationale="Best-ranked action from exhaustive twin search.", verified=True, evidence=cand)
-        rec, decision, entry = approver.review(rec, config, diag, settings, rounds)
+        rec, decision, entry = approver.review(rec, model, diag, settings, rounds)
         gate_log.append(entry)
         trace.append({"step": "gate", "detail": f"{'approved' if decision.approved else 'rejected'}: {decision.reason}"})
         if decision.approved:

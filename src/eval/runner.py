@@ -29,7 +29,8 @@ from src.eval import analysis, plots, report
 from src.eval.metrics import score_run
 from src.eval.truth import TruthEvaluator
 from src.llm import LLMClient
-from src.scenarios import SCENARIOS, Scenario
+from src.scenarios import SCENARIOS, Scenario, misspecify
+from src.twin import LineConfig
 
 SYSTEMS = ["rule_based", "toc_heuristic", "twin_search", "single_agent", "multi_agent_no_sim", "multi_agent"]
 HUMAN_REVIEW_SEEDS = 2
@@ -44,28 +45,41 @@ GATE_ARMS = {
 }
 
 
+# Mis-specified twin arms: the agents and the gate simulate on a perturbed twin, fixes are scored on the real line.
+MISSPEC_SIGMAS = (0.1, 0.25, 0.5)
+MISSPEC_DRAWS = 5  # independent mis-calibrations per (scenario, sigma); a run uses draw ``seed % MISSPEC_DRAWS``
+MISSPEC_SYSTEMS = ["twin_search", "multi_agent_no_sim", "multi_agent"]  # the systems that use the twin (no_sim only via the independent gate)
+
+
+def misspec_arms() -> dict[str, tuple[float, bool]]:
+    """Experiment name -> (sigma, independent gate) for every mis-specified-twin arm."""
+    return {f"misspec{sg}{'_indep' if ind else ''}": (sg, ind) for sg in MISSPEC_SIGMAS for ind in (False, True)}
+
+
 def make_approver(settings: PipelineSettings, bad_rate: float, seed: int, forge: bool, independent: bool) -> SimulatedApprover:
     """Evidence-trusting or independent re-simulating gate; injection draws depend only on ``seed`` (paired across arms)."""
     kw = dict(min_gain_pct=settings.min_gain_pct, bad_rate=bad_rate, seed=seed, forge_evidence=forge)
     return IndependentApprover(alpha=settings.alpha, n_reps=settings.n_reps, **kw) if independent else SimulatedApprover(**kw)
 
 
-def run_system(system: str, sc: Scenario, seed: int, client: LLMClient, approver: SimulatedApprover, settings: PipelineSettings) -> RunRecord:
-    """Dispatch one run of ``system``."""
+def run_system(system: str, sc: Scenario, seed: int, client: LLMClient, approver: SimulatedApprover, settings: PipelineSettings,
+               twin: LineConfig | None = None) -> RunRecord:
+    """Dispatch one run of ``system``; ``twin`` is the model it simulates on (None = the real line)."""
     if system == "rule_based":
         return run_rule_based(sc, seed, approver, settings)
     if system == "toc_heuristic":
         return run_toc_heuristic(sc, seed, approver, settings)
     if system == "twin_search":
-        return run_twin_search(sc, seed, approver, settings)
+        return run_twin_search(sc, seed, approver, settings, twin)
     if system == "single_agent":
         return run_single_agent(sc, seed, client, approver, settings)
-    return Pipeline(sc, seed, client, approver, settings, use_simulation=system == "multi_agent", system=system).run()
+    return Pipeline(sc, seed, client, approver, settings, use_simulation=system == "multi_agent", system=system, twin=twin).run()
 
 
 def run_grid(
     client: LLMClient, seeds: list[int], bad_rate: float, experiment: str, truth: TruthEvaluator, settings: PipelineSettings,
     systems: list[str] = SYSTEMS, scenarios: list[str] | None = None, forge: bool = False, independent: bool = False,
+    twin_sigma: float = 0.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[tuple[RunRecord, Scenario]]]:
     """Run all systems x scenarios x seeds for one experiment; returns run rows, gate-review rows, raw records."""
     rows, reviews, records = [], [], []
@@ -73,10 +87,11 @@ def run_grid(
         sc = SCENARIOS[name]
         scenario_offset = 97 * list(SCENARIOS).index(name)
         for seed in seeds:
+            twin = misspecify(sc.config, twin_sigma, 7919 * (list(SCENARIOS).index(name) + 1) + seed % MISSPEC_DRAWS) if twin_sigma > 0 else None
             for system in systems:
                 # same injection draws for every system on a given (scenario, seed): paired comparison
                 approver = make_approver(settings, bad_rate, 10_000 + scenario_offset + seed, forge, independent)
-                rec = run_system(system, sc, seed, client, approver, settings)
+                rec = run_system(system, sc, seed, client, approver, settings, twin)
                 row, rev = score_run(rec, sc, truth, client, experiment)
                 rows.append(row)
                 reviews.extend(rev)
@@ -107,10 +122,11 @@ def write_human_review_template(records: list[tuple[RunRecord, Scenario]], out_d
 
 
 def run_experiments(seeds: list[int], out_dir: Path, docs_dir: Path | None, bad_rate: float, client: LLMClient | None = None,
-                    settings: PipelineSettings | None = None, scenarios: list[str] | None = None, gate_arms: bool = False) -> dict[str, Any]:
+                    settings: PipelineSettings | None = None, scenarios: list[str] | None = None, gate_arms: bool = False, misspec: bool = False) -> dict[str, Any]:
     """Run the experiments, write all outputs, and return the metadata dict.
 
-    ``clean`` and ``stress`` always run. ``gate_arms`` adds the independent-gate ablation (``GATE_ARMS``).
+    ``clean`` and ``stress`` always run. ``gate_arms`` adds the independent-gate ablation (``GATE_ARMS``); ``misspec`` adds the
+    mis-specified-twin arms (``misspec_arms``), which are slow because every twin differs.
     """
     client = client or default_client()
     settings = settings or PipelineSettings()
@@ -124,6 +140,12 @@ def run_experiments(seeds: list[int], out_dir: Path, docs_dir: Path | None, bad_
         review_parts.append(v)
         if name == "clean":
             records = recs
+    if misspec:
+        for name, (sigma, independent) in misspec_arms().items():
+            r, v, _ = run_grid(client, seeds, 0.0, name, truth, settings, systems=MISSPEC_SYSTEMS, scenarios=scenarios, independent=independent, twin_sigma=sigma)
+            run_parts.append(r)
+            review_parts.append(v)
+            arms[name] = (False, False, independent)
     runs, reviews = pd.concat(run_parts, ignore_index=True), pd.concat(review_parts, ignore_index=True)
     meta = {
         "mode": "mock" if client.is_mock else client.model, "n_seeds": len(seeds), "seeds": seeds, "bad_rate_stress": bad_rate,
@@ -158,9 +180,10 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=Path("results"))
     ap.add_argument("--docs", type=Path, default=Path("docs"))
     ap.add_argument("--no-gate-arms", action="store_true", help="skip the independent-gate ablation experiments (faster)")
+    ap.add_argument("--misspec", action="store_true", help="also run the mis-specified-twin experiments (slow, about 10 extra minutes)")
     ap.add_argument("--bad-rate", type=float, default=0.5, help="bad-recommendation injection rate in the stress experiment")
     args = ap.parse_args()
-    meta = run_experiments(list(range(1, args.seeds + 1)), args.out, args.docs, args.bad_rate, gate_arms=not args.no_gate_arms)
+    meta = run_experiments(list(range(1, args.seeds + 1)), args.out, args.docs, args.bad_rate, gate_arms=not args.no_gate_arms, misspec=args.misspec)
     print(f"done ({meta['mode']} mode, {args.seeds} seeds): see {args.out}/summary.md")
 
 
