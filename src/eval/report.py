@@ -10,7 +10,7 @@ import pandas as pd
 from src.eval import analysis
 from src.eval.analysis import FAULT_SCENARIOS, paired_diff_ci
 
-SYSTEM_ORDER = ["rule_based", "single_agent", "multi_agent_no_sim", "multi_agent"]
+SYSTEM_ORDER = ["rule_based", "toc_heuristic", "twin_search", "single_agent", "multi_agent_no_sim", "multi_agent"]
 PCT_METRICS = {"station_correct", "type_correct", "invalid_fix", "bad_applied", "false_alarm_action"}
 
 
@@ -64,6 +64,41 @@ def _scenario_table(summary: pd.DataFrame, metric: str, pct: bool) -> str:
     scenarios = list(dict.fromkeys(summary["scenario"]))
     rows = [[s] + [cell(pick(summary, metric, system=s, scenario=sc), pct, 1) for sc in scenarios] for s in _systems(summary)]
     return md_table(["System"] + scenarios, rows)
+
+
+def _baseline_section(clean: pd.DataFrame, overall: pd.DataFrame) -> list[str]:
+    """Multi-agent vs the non-LLM baselines: does the agent design beat a classical rule or brute-force twin search?"""
+    have = set(clean["system"])
+    if not {"toc_heuristic", "twin_search"} <= have:
+        return []
+    out = ["**Does the multi-agent system beat strong non-LLM baselines?**", "",
+           "`toc_heuristic` applies Theory-of-Constraints rules to the observed KPIs (no twin, no LLM). `twin_search` simulates the whole typed action grid and gates "
+           "the best verified fix (no LLM, no diagnosis). Paired differences, multi-agent minus baseline (clean experiment, fault scenarios):", ""]
+    rows = []
+    for base in ("toc_heuristic", "twin_search"):
+        g = paired_diff_ci(clean, "gain_pct", "multi_agent", base)
+        e = paired_diff_ci(clean, "ineffective_fix", "multi_agent", base)
+        rows.append([base, verdict(g[0], g[1], g[2], g[3], " pp of throughput"), verdict(e[0], e[1], e[2], e[3], "")])
+    out += [md_table(["Baseline", "Throughput gain", "Ineffective-fix rate (fraction of runs)"], rows), ""]
+    sims = clean[(clean["system"] == "twin_search") & clean["scenario"].isin(FAULT_SCENARIOS)]["twin_sims"].mean()
+    tok = pick(overall[overall["system"] == "multi_agent"], "total_tokens")
+    ts = paired_diff_ci(clean, "gain_pct", "multi_agent", "twin_search")
+    if ts[0] == 0 or math.isnan(ts[1]):
+        reading = "The multi-agent vs twin-search throughput difference is not computable."
+    elif ts[3] < 0:
+        reading = ("Exhaustive twin search gains more throughput than multi-agent, so on this 5-station grid the proposer's shortlist, not the twin, limits the "
+                   "multi-agent result; the LLM roles are not what produces the gain.")
+    elif ts[2] > 0:
+        reading = "Multi-agent gains more throughput than exhaustive twin search, so its targeted proposals find fixes the coarse grid misses."
+    else:
+        reading = ("No detectable throughput difference between multi-agent and exhaustive twin search, so the LLM roles add little over brute force here; "
+                   "their case would rest on action spaces too large to enumerate, which a 5-station grid is not.")
+    out += [f"Cost: `twin_search` spends about {sims:.0f} twin simulations per run on a fault line and no tokens; multi-agent tests at most the proposer's candidate "
+            f"list (default 5) per round with {cell(tok, digits=0)} tokens. {reading} "
+            "What the multi-agent system still offers over `twin_search` is a diagnosis and an explanation, which the search does not produce: it makes no diagnosis, so "
+            "its station accuracy is only the station its best fix targets and its fault type is not scored. Its candidate grid is limited to the typed action set, as for "
+            "every system. In mock mode the multi-agent proposer is rule-based, so this comparison says nothing about LLM-proposed candidates.", ""]
+    return out
 
 
 def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFrame, summary: pd.DataFrame, catch_overall: pd.DataFrame, meta: dict[str, Any]) -> str:
@@ -125,6 +160,8 @@ def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFram
             f"Ineffective-fix rate difference (fraction of runs): {verdict(d2e[0], d2e[1], d2e[2], d2e[3], '')}. Versus the single agent, throughput gain difference: "
             f"{verdict(d2s[0], d2s[1], d2s[2], d2s[3], ' pp of throughput')}. Note that the Simulation agent picks the best-measured candidate from the same proposal list, "
             "so a positive gain difference partly reflects selection among candidates rather than better proposals.", ""]
+    out += _baseline_section(clean, overall)
+
     def rate(system: str, status: str) -> str:
         r = by_status[(by_status["system"] == system) & (by_status["status"] == status)]
         return f"{100 * r['catch_rate'].iloc[0]:.0f}% (n={int(r['bad_reviews'].iloc[0])})" if len(r) else "n/a (none reached the gate)"

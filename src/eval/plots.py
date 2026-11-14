@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-SYSTEM_ORDER = ["rule_based", "single_agent", "multi_agent_no_sim", "multi_agent"]
+SYSTEM_ORDER = ["rule_based", "toc_heuristic", "twin_search", "single_agent", "multi_agent_no_sim", "multi_agent"]
 LABELS = {
     "station_correct": ("Bottleneck accuracy", "fraction correct"),
     "gain_pct": ("Throughput gain after fix", "% vs before"),

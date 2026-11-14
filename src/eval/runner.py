@@ -20,14 +20,14 @@ import pandas as pd
 
 from src.agents import Pipeline, PipelineSettings, RunRecord, SimulatedApprover, default_client
 from src.agents.observe import observe
-from src.baselines import run_rule_based, run_single_agent
+from src.baselines import run_rule_based, run_single_agent, run_toc_heuristic, run_twin_search
 from src.eval import analysis, plots, report
 from src.eval.metrics import score_run
 from src.eval.truth import TruthEvaluator
 from src.llm import LLMClient
 from src.scenarios import SCENARIOS, Scenario
 
-SYSTEMS = ["rule_based", "single_agent", "multi_agent_no_sim", "multi_agent"]
+SYSTEMS = ["rule_based", "toc_heuristic", "twin_search", "single_agent", "multi_agent_no_sim", "multi_agent"]
 HUMAN_REVIEW_SEEDS = 2
 
 
@@ -35,6 +35,10 @@ def run_system(system: str, sc: Scenario, seed: int, client: LLMClient, approver
     """Dispatch one run of ``system``."""
     if system == "rule_based":
         return run_rule_based(sc, seed, approver, settings)
+    if system == "toc_heuristic":
+        return run_toc_heuristic(sc, seed, approver, settings)
+    if system == "twin_search":
+        return run_twin_search(sc, seed, approver, settings)
     if system == "single_agent":
         return run_single_agent(sc, seed, client, approver, settings)
     return Pipeline(sc, seed, client, approver, settings, use_simulation=system == "multi_agent", system=system).run()

@@ -22,9 +22,11 @@
     "max_candidates": 5,
     "eval_seed_base": 1000
   },
-  "date": "2026-11-11",
+  "date": "2026-11-14",
   "systems": [
     "rule_based",
+    "toc_heuristic",
+    "twin_search",
     "single_agent",
     "multi_agent_no_sim",
     "multi_agent"
