@@ -1,0 +1,10 @@
+# LaTeX build products. generated/*.tex is tracked on purpose so the paper builds without the Python environment.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+main.pdf
