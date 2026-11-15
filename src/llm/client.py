@@ -13,13 +13,18 @@ from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from src.llm.backends import AnthropicBackend, Backend, MockBackend, MockHandler, RawCompletion
+from src.llm.backends import AnthropicBackend, Backend, MockBackend, MockHandler, OpenAIBackend, RawCompletion
 from src.llm.usage import UsageMeter
 
 logger = logging.getLogger("llm")
 
 DEFAULT_MODEL = "claude-haiku-5-5"
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_CACHE_DIR = Path("results/llm_cache")
+PROVIDERS = {  # provider -> (API key variable, model variable, default model)
+    "anthropic": ("ANTHROPIC_API_KEY", "LLM_MODEL", DEFAULT_MODEL),
+    "openai": ("OPENAI_API_KEY", "OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+}
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -142,10 +147,25 @@ class LLMClient:
         raise LLMOutputError(f"{role}: no valid JSON after {self.repair_attempts + 1} attempts: {last_error}")
 
 
-def from_env(handlers: dict[str, MockHandler] | None = None, cache_dir: Path | None = None) -> LLMClient:
-    """Build a client from env vars (``LLM_MODE``, ``LLM_MODEL``, ``ANTHROPIC_API_KEY``).
+def _provider() -> str:
+    """``LLM_PROVIDER`` (default ``anthropic``).
 
-    Defaults to mock mode unless a key is set and ``LLM_MODE`` is not ``mock``.
+    Deliberately explicit: ``OPENAI_API_KEY`` is often set for unrelated tools, so its mere presence must
+    not switch this project from free mock mode to paid calls.
+    """
+    provider = os.environ.get("LLM_PROVIDER", "").strip().lower() or "anthropic"
+    if provider not in PROVIDERS:
+        raise RuntimeError(f"LLM_PROVIDER must be one of {sorted(PROVIDERS)}, got {provider!r}")
+    return provider
+
+
+def from_env(handlers: dict[str, MockHandler] | None = None, cache_dir: Path | None = None) -> LLMClient:
+    """Build a client from env vars.
+
+    Provider: ``LLM_PROVIDER`` = ``anthropic`` (default; key ``ANTHROPIC_API_KEY``, model ``LLM_MODEL``) or
+    ``openai`` (key ``OPENAI_API_KEY``, model ``OPENAI_MODEL``, default ``gpt-4.1-mini``). OpenAI is used only when
+    ``LLM_PROVIDER=openai`` is set explicitly. Defaults to mock mode unless the chosen provider's key is set and
+    ``LLM_MODE`` is not ``mock``.
     """
     try:
         from dotenv import load_dotenv
@@ -153,11 +173,14 @@ def from_env(handlers: dict[str, MockHandler] | None = None, cache_dir: Path | N
         load_dotenv()
     except ImportError:  # pragma: no cover - dotenv is a declared dependency
         pass
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    provider = _provider()
+    key_var, model_var, default_model = PROVIDERS[provider]
+    key = os.environ.get(key_var, "")
     mode = os.environ.get("LLM_MODE") or ("real" if key else "mock")
     if mode == "real":
         if not key:
-            raise RuntimeError("LLM_MODE=real requires ANTHROPIC_API_KEY")
-        model = os.environ.get("LLM_MODEL", DEFAULT_MODEL)
-        return LLMClient(AnthropicBackend(model, key), cache_dir=cache_dir or DEFAULT_CACHE_DIR)
+            raise RuntimeError(f"LLM_MODE=real with provider {provider!r} requires {key_var}")
+        model = os.environ.get(model_var) or default_model
+        backend: Backend = OpenAIBackend(model, key) if provider == "openai" else AnthropicBackend(model, key)
+        return LLMClient(backend, cache_dir=cache_dir or DEFAULT_CACHE_DIR)
     return LLMClient(MockBackend(handlers))

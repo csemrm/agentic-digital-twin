@@ -29,7 +29,7 @@ Every modelling choice and parameter source. Update as phases land.
 
 ## LLM layer
 
-- Default model `claude-haiku-5-5` (override with `LLM_MODEL`). Mode is `mock` unless `ANTHROPIC_API_KEY` is set (or `LLM_MODE=real` is forced). No sampling parameters are passed; determinism across reruns comes from the on-disk cache keyed by (model, system prompt, user prompt).
+- Default model `claude-haiku-5-5` (override with `LLM_MODEL`). Mode is `mock` unless `ANTHROPIC_API_KEY` is set (or `LLM_MODE=real` is forced). With `LLM_PROVIDER=openai` the client uses the OpenAI Chat Completions API instead (key `OPENAI_API_KEY`, model `OPENAI_MODEL`, default `gpt-4.1-mini`, JSON mode on, default sampling); OpenAI is never selected implicitly. The report header names the model, so Anthropic and OpenAI runs are distinguishable. No sampling parameters are passed; determinism across reruns comes from the on-disk cache keyed by (model, system prompt, user prompt).
 - Mock mode uses scripted, rule-based role handlers and character-based token estimates (about 4 chars/token). **Mock results exercise the pipeline; they say nothing about real LLM quality** and are labelled as mock everywhere.
 - A "step" is one LLM call, including cache hits and JSON repair re-asks. Tokens from cache hits are still counted (what a fresh run would spend).
 - Retries: exponential backoff (1, 2, 4, 8 s) on rate-limit, connection and 5xx errors; one repair re-ask on invalid JSON.

@@ -21,7 +21,7 @@ No linter is configured. `ruff check src tests --select F,W` is clean.
 
 ## Mock vs real LLM
 
-`from_env` returns a mock client unless `ANTHROPIC_API_KEY` is set (or `LLM_MODE=real`). Mock role handlers live in `src/agents/mock_roles.py` and are rule-based. Tests must never need a key; use `mock_client()` from `src.agents`. Everything produced in mock mode must stay labelled MOCK (the report generator does this). Real responses are cached under `results/llm_cache/` (git-ignored).
+`from_env` returns a mock client unless `ANTHROPIC_API_KEY` is set (or `LLM_MODE=real`). `LLM_PROVIDER=openai` (explicit only) switches to `OpenAIBackend` with `OPENAI_API_KEY`/`OPENAI_MODEL`; `openai` is an optional extra, so tests that need it use `pytest.importorskip` and fakes, never the network. Mock role handlers live in `src/agents/mock_roles.py` and are rule-based. Tests must never need a key; use `mock_client()` from `src.agents`. Everything produced in mock mode must stay labelled MOCK (the report generator does this). Real responses are cached under `results/llm_cache/` (git-ignored).
 
 ## Architecture (the parts that span files)
 

@@ -57,6 +57,15 @@ make run-experiments
 
 `LLM_MODEL` defaults to a small, cheap model. Responses are cached on disk in `results/llm_cache/` keyed by (model, prompt), so reruns are free and reproducible. Token and step counts are recorded per run. The judge for explanation quality also runs through the same client.
 
+#### Using OpenAI instead (e.g. `gpt-4.1-mini`)
+
+```bash
+.venv/bin/python -m pip install -e '.[openai]'
+# in .env:  LLM_PROVIDER=openai   OPENAI_API_KEY=sk-...   OPENAI_MODEL=gpt-4.1-mini   (OPENAI_MODEL is optional)
+```
+
+OpenAI is used only when `LLM_PROVIDER=openai` is set explicitly, because `OPENAI_API_KEY` is often present for other tools and must not switch this project from free mock mode to paid calls. `LLM_MODEL` applies to Anthropic only. The cache key includes the model name, so providers never share cached answers. Run both providers to check that a result is not specific to one model family.
+
 ### Reproduce the experiments
 
 ```bash
