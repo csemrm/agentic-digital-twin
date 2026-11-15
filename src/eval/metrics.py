@@ -62,7 +62,7 @@ def score_run(
     row = {
         "experiment": experiment, "system": rec.system, "scenario": rec.scenario, "seed": rec.seed, "outcome": rec.outcome,
         "iterations": rec.iterations, "steps": rec.usage["steps"], "input_tokens": rec.usage["input_tokens"],
-        "output_tokens": rec.usage["output_tokens"], "total_tokens": rec.usage["total_tokens"],
+        "output_tokens": rec.usage["output_tokens"], "total_tokens": rec.usage["total_tokens"], "twin_sims": rec.usage.get("twin_sims", 0),
         "station_correct": float(station_correct(first, sc)), "final_station_correct": float(station_correct(rec.diagnoses[-1], sc)),
         "type_correct": type_correct(first, sc), "applied": rec.applied_action is not None, "gain_pct": gain,
         "false_alarm_action": sc.truth.station is None and rec.applied_action is not None,

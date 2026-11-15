@@ -58,7 +58,11 @@ class Pipeline:
         settings: PipelineSettings | None = None,
         use_simulation: bool = True,
         system: str | None = None,
+        twin: LineConfig | None = None,
     ) -> None:
+        # ``twin`` is the model the Simulation agent and the gate simulate on; the real line (scenario.config) is what is
+        # observed and what a fix is applied to. None means a perfect twin (the default).
+        self.twin = twin
         self.scenario, self.seed, self.client, self.approver = scenario, seed, client, approver
         self.settings = settings or PipelineSettings()
         self.use_simulation = use_simulation
@@ -71,6 +75,9 @@ class Pipeline:
     # ----- nodes -----
     def _config(self, state: PipelineState) -> LineConfig:
         return LineConfig.model_validate(state["config"])
+
+    def _twin_config(self, state: PipelineState) -> LineConfig:
+        return self.twin if self.twin is not None else self._config(state)
 
     def _monitor(self, state: PipelineState) -> dict[str, Any]:
         obs = observe(self._config(state), self.seed).payload
@@ -92,7 +99,7 @@ class Pipeline:
         log = RejectionLog()
         rec: Recommendation | None = None
         if self.use_simulation:
-            results = run_simulation_agent(config, proposal.candidates, self.settings, log)
+            results = run_simulation_agent(self._twin_config(state), proposal.candidates, self.settings, log)
             summaries = [r.model_dump() for r in results]
             best = next((r for r in results if r.passed), None)
             if best:
@@ -117,7 +124,7 @@ class Pipeline:
     def _gate(self, state: PipelineState) -> dict[str, Any]:
         config, rec = self._config(state), Recommendation.model_validate(state["recommendation"])
         if self.approver is not None:
-            rec, decision, entry = self.approver.review(rec, config, state["diagnosis"], self.settings, state["iteration"])
+            rec, decision, entry = self.approver.review(rec, self._twin_config(state), state["diagnosis"], self.settings, state["iteration"])
         else:
             if not state.get("human_decision"):
                 raise RuntimeError("human gate reached without a decision")

@@ -10,7 +10,7 @@ import pandas as pd
 from src.eval import analysis
 from src.eval.analysis import FAULT_SCENARIOS, paired_diff_ci
 
-SYSTEM_ORDER = ["rule_based", "single_agent", "multi_agent_no_sim", "multi_agent"]
+SYSTEM_ORDER = ["rule_based", "toc_heuristic", "twin_search", "single_agent", "multi_agent_no_sim", "multi_agent"]
 PCT_METRICS = {"station_correct", "type_correct", "invalid_fix", "bad_applied", "false_alarm_action"}
 
 
@@ -64,6 +64,82 @@ def _scenario_table(summary: pd.DataFrame, metric: str, pct: bool) -> str:
     scenarios = list(dict.fromkeys(summary["scenario"]))
     rows = [[s] + [cell(pick(summary, metric, system=s, scenario=sc), pct, 1) for sc in scenarios] for s in _systems(summary)]
     return md_table(["System"] + scenarios, rows)
+
+
+def _baseline_section(clean: pd.DataFrame, overall: pd.DataFrame) -> list[str]:
+    """Multi-agent vs the non-LLM baselines: does the agent design beat a classical rule or brute-force twin search?"""
+    have = set(clean["system"])
+    if not {"toc_heuristic", "twin_search"} <= have:
+        return []
+    out = ["**Does the multi-agent system beat strong non-LLM baselines?**", "",
+           "`toc_heuristic` applies Theory-of-Constraints rules to the observed KPIs (no twin, no LLM). `twin_search` simulates the whole typed action grid and gates "
+           "the best verified fix (no LLM, no diagnosis). Paired differences, multi-agent minus baseline (clean experiment, fault scenarios):", ""]
+    rows = []
+    for base in ("toc_heuristic", "twin_search"):
+        g = paired_diff_ci(clean, "gain_pct", "multi_agent", base)
+        e = paired_diff_ci(clean, "ineffective_fix", "multi_agent", base)
+        rows.append([base, verdict(g[0], g[1], g[2], g[3], " pp of throughput"), verdict(e[0], e[1], e[2], e[3], "")])
+    out += [md_table(["Baseline", "Throughput gain", "Ineffective-fix rate (fraction of runs)"], rows), ""]
+    sims = clean[(clean["system"] == "twin_search") & clean["scenario"].isin(FAULT_SCENARIOS)]["twin_sims"].mean()
+    tok = pick(overall[overall["system"] == "multi_agent"], "total_tokens")
+    ts = paired_diff_ci(clean, "gain_pct", "multi_agent", "twin_search")
+    if ts[0] == 0 or math.isnan(ts[1]):
+        reading = "The multi-agent vs twin-search throughput difference is not computable."
+    elif ts[3] < 0:
+        reading = ("Exhaustive twin search gains more throughput than multi-agent, so on this 5-station grid the proposer's shortlist, not the twin, limits the "
+                   "multi-agent result; the LLM roles are not what produces the gain.")
+    elif ts[2] > 0:
+        reading = "Multi-agent gains more throughput than exhaustive twin search, so its targeted proposals find fixes the coarse grid misses."
+    else:
+        reading = ("No detectable throughput difference between multi-agent and exhaustive twin search, so the LLM roles add little over brute force here; "
+                   "their case would rest on action spaces too large to enumerate, which a 5-station grid is not.")
+    out += [f"Cost: `twin_search` spends about {sims:.0f} twin simulations per run on a fault line and no tokens; multi-agent tests at most the proposer's candidate "
+            f"list (default 5) per round with {cell(tok, digits=0)} tokens. {reading} "
+            "What the multi-agent system still offers over `twin_search` is a diagnosis and an explanation, which the search does not produce: it makes no diagnosis, so "
+            "its station accuracy is only the station its best fix targets and its fault type is not scored. Its candidate grid is limited to the typed action set, as for "
+            "every system. In mock mode the multi-agent proposer is rule-based, so this comparison says nothing about LLM-proposed candidates.", ""]
+    return out
+
+
+def _catch_cell(by_sys: pd.DataFrame, system: str) -> str:
+    r = by_sys[by_sys["system"] == system]
+    return f"{100 * r['catch_rate'].iloc[0]:.0f}% (n={int(r['bad_reviews'].iloc[0])})" if len(r) else "n/a"
+
+
+def _gate_section(runs: pd.DataFrame, reviews: pd.DataFrame) -> list[str]:
+    """Ablation of the gate itself: trusting presented evidence vs re-simulating on independent seeds."""
+    have = set(runs["experiment"])
+    if not {"stress_forged", "stress_forged_indep", "stress_indep", "clean_indep"} <= have:
+        return []
+    arms = [("stress", "honest evidence, trusting gate"), ("stress_indep", "honest evidence, independent gate"),
+            ("stress_forged", "forged evidence, trusting gate"), ("stress_forged_indep", "forged evidence, independent gate")]
+    catch = {a: analysis.gate_catch_table(reviews[reviews["experiment"] == a], ["system"]) for a, _ in arms}
+    systems = [s for s in SYSTEM_ORDER if s in set(runs["system"])]
+    out = ["## Does the gate need to trust the evidence? (independent re-simulation)", "",
+           "The default gate approves a verified fix iff the *presented* twin evidence clears the threshold, so a fix that arrives with stale or fabricated "
+           "evidence is approved on its numbers. The independent gate ignores presented evidence: it validates the action, then re-simulates it on its own "
+           "seeds (3000+, disjoint from the Simulation agent's 1000+ and the scoring seeds 2000+) with the same test, and decides on that alone. "
+           "In the forged arms every injected bad fix that has evidence carries the real fix's evidence. 'Bad' is judged by the independent scoring "
+           "replications, not by either gate.", "",
+           "Catch rate over bad recommendations reaching the gate (stress experiments):", "",
+           md_table(["System"] + [label for _, label in arms], [[s] + [_catch_cell(catch[a], s) for a, _ in arms] for s in systems]), ""]
+    fa = runs[runs["scenario"].isin(FAULT_SCENARIOS)]
+    rows = []
+    for s in systems:
+        row = [s]
+        for exp in ("clean", "clean_indep"):
+            g = fa[(fa["system"] == s) & (fa["experiment"] == exp)]
+            n, m, lo, hi = analysis.mean_ci(g["gain_pct"], False)
+            row += [f"{m:.1f} [{lo:.1f}, {hi:.1f}]" if n > 1 else f"{m:.1f}", f"{100 * g['applied'].mean():.0f}%"]
+        rows.append(row)
+    out += ["Cost of independence on good fixes (clean experiment, fault scenarios; no bad recommendations injected):", "",
+            md_table(["System", "Gain %, trusting gate", "Fixes applied", "Gain %, independent gate", "Fixes applied"], rows), "",
+            "Reading: with forged evidence the trusting gate can only catch invalid actions, so a harmful-but-valid fix that arrives with good-looking numbers "
+            "escapes. The independent gate catches it because it never uses those numbers. The price is extra twin simulations per review (2 x n_reps) and the gate "
+            "itself becoming the verifier: a system with no Simulation step is also checked, so differences in fix safety between systems shrink under this gate. "
+            "The re-simulation uses the same twin as the proposer, so it removes selection bias and forgery but not model mismatch; a real sim-to-real gap needs a "
+            "mis-specified-twin experiment.", ""]
+    return out
 
 
 def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFrame, summary: pd.DataFrame, catch_overall: pd.DataFrame, meta: dict[str, Any]) -> str:
@@ -125,6 +201,9 @@ def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFram
             f"Ineffective-fix rate difference (fraction of runs): {verdict(d2e[0], d2e[1], d2e[2], d2e[3], '')}. Versus the single agent, throughput gain difference: "
             f"{verdict(d2s[0], d2s[1], d2s[2], d2s[3], ' pp of throughput')}. Note that the Simulation agent picks the best-measured candidate from the same proposal list, "
             "so a positive gain difference partly reflects selection among candidates rather than better proposals.", ""]
+    out += _baseline_section(clean, overall)
+    out += _gate_section(runs, reviews)
+
     def rate(system: str, status: str) -> str:
         r = by_status[(by_status["system"] == system) & (by_status["status"] == status)]
         return f"{100 * r['catch_rate'].iloc[0]:.0f}% (n={int(r['bad_reviews'].iloc[0])})" if len(r) else "n/a (none reached the gate)"
@@ -137,8 +216,8 @@ def build_report(runs: pd.DataFrame, reviews: pd.DataFrame, overall: pd.DataFram
             + ", ".join(f"{s} {rate(s, 'invalid')}" for s in _systems(runs)) + ". "
             "Harmful-but-valid recommendations caught: "
             + ", ".join(f"{s} {rate(s, 'harmful')}" for s in _systems(runs)) + ". "
-            "By design of the simulated approver, harmful-but-valid fixes can only be caught when twin numbers are shown (multi-agent), so read the harmful row as a check "
-            "of that mechanism rather than an independent finding. A real supervisor's catch rate needs human data (the dashboard has the real gate).", "",
+            "By design of the default simulated approver, harmful-but-valid fixes can only be caught when twin numbers are shown (multi-agent), so read the harmful row as a check "
+            "of that mechanism rather than an independent finding; the independent-gate section above tests what happens when those numbers cannot be trusted. A real supervisor's catch rate needs human data (the dashboard has the real gate).", "",
             "## Limitations", "",
             "- The twin is both the world the agents observe and the verifier they use, so there is no model mismatch: verified gains are real inside the simulation by definition. Real plants would add a sim-to-real gap.",
             "- Fault scenarios are synthetic, few (5) and chosen by the authors; ground truth is exact only because the faults are seeded. Line parameters are illustrative, not from a real plant.",

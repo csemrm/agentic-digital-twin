@@ -81,3 +81,104 @@ def test_single_agent_cannot_catch_harmful_injected_fix_without_twin_evidence() 
         rec = run_single_agent(SCENARIOS["slow_station"], seed, mock_client(), SimulatedApprover(bad_rate=1.0, seed=seed))
         caught_none += any(g["injected"] and g["approved"] for g in rec.gate_log)
     assert caught_none > 0
+
+
+# --- TOC heuristic ---------------------------------------------------------------
+
+
+def test_toc_picks_fix_matching_observed_symptom() -> None:
+    from src.baselines import run_toc_heuristic
+
+    slow = run_toc_heuristic(SCENARIOS["slow_station"], 1, SimulatedApprover())
+    assert slow.outcome == "applied" and slow.applied_action["type"] == "rebalance_task" and slow.applied_action["from_station"] == 2
+    assert slow.diagnoses[0]["fault_type"] == "slow_station"
+    brk = run_toc_heuristic(SCENARIOS["breakdowns"], 1, SimulatedApprover())
+    assert brk.applied_action["type"] == "change_maintenance" and brk.applied_action["station"] == SCENARIOS["breakdowns"].truth.station
+
+
+def test_toc_is_unverified_llm_free_and_leaves_healthy_line_alone() -> None:
+    from src.baselines import run_toc_heuristic
+
+    rec = run_toc_heuristic(SCENARIOS["slow_station"], 1, SimulatedApprover())
+    assert rec.system == "toc_heuristic" and rec.usage["steps"] == 0 and rec.usage["total_tokens"] == 0
+    assert rec.gate_log[0]["verified"] is False and rec.iterations == 1
+    healthy = run_toc_heuristic(SCENARIOS["healthy"], 1, SimulatedApprover())
+    assert healthy.outcome == "no_fault" and healthy.applied_action is None
+
+
+def test_toc_rejection_ends_after_one_round() -> None:
+    from src.baselines import run_toc_heuristic
+
+    rec = run_toc_heuristic(SCENARIOS["slow_station"], 1, RejectAll())
+    assert rec.outcome == "rejected" and rec.applied_action is None
+    assert rec.final_config == SCENARIOS["slow_station"].config.model_dump()
+
+
+def test_toc_buffer_goes_before_the_constraint_and_stays_in_bounds() -> None:
+    from src.baselines.toc_heuristic import classify_and_act
+
+    def obs(active_station: int) -> dict:
+        return {"stations": [
+            {"id": i, "utilization": 0.9 if i == active_station else 0.5, "down": 0.0, "measured_cycle_time_s": 60.0, "standard_cycle_time_s": 60.0}
+            for i in range(1, 6)]}
+
+    _, a1 = classify_and_act(obs(1), 5, set())
+    _, a3 = classify_and_act(obs(3), 5, set())
+    assert a1 == {"type": "add_buffer", "station": 1, "size": 3}  # first station: nothing upstream, buffer after it
+    assert a3 == {"type": "add_buffer", "station": 2, "size": 3}
+
+
+# --- twin search -----------------------------------------------------------------
+
+
+def test_twin_search_grid_is_all_valid_and_covers_every_action_type() -> None:
+    from src.actions import validate_and_apply
+    from src.baselines.twin_search import action_grid
+
+    cfg = SCENARIOS["mixed"].config
+    grid = action_grid(cfg)
+    assert {a["type"] for a in grid} == {"add_buffer", "rebalance_task", "change_maintenance"}
+    assert all(validate_and_apply(a, cfg).ok for a in grid)
+    assert len(grid) == len({repr(sorted(a.items())) for a in grid})
+
+
+def test_twin_search_verifies_best_fix_without_llm_and_reports_cost() -> None:
+    from src.baselines import run_twin_search
+
+    s = PipelineSettings()
+    rec = run_twin_search(SCENARIOS["slow_station"], 1, SimulatedApprover(), s)
+    assert rec.system == "twin_search" and rec.outcome == "applied"
+    assert rec.usage["steps"] == 0 and rec.usage["total_tokens"] == 0 and rec.usage["twin_sims"] > 8 * 40
+    assert rec.gate_log[0]["verified"] is True and rec.gate_log[0]["gain_pct"] >= s.min_gain_pct
+    assert rec.diagnoses[0]["fault_type"] == "unspecified"
+
+
+def test_twin_search_healthy_line_costs_nothing() -> None:
+    from src.baselines import run_twin_search
+
+    rec = run_twin_search(SCENARIOS["healthy"], 1, SimulatedApprover())
+    assert rec.outcome == "no_fault" and rec.applied_action is None and rec.usage["twin_sims"] == 0
+
+
+def test_twin_search_offers_next_best_fix_after_gate_rejection_up_to_round_cap() -> None:
+    from src.baselines import run_twin_search
+
+    rec = run_twin_search(SCENARIOS["slow_station"], 1, RejectAll(), PipelineSettings(max_iterations=2))
+    assert rec.outcome == "rejected_max_iterations" and rec.iterations == 2 and rec.applied_action is None
+    assert rec.gate_log[0]["action"] != rec.gate_log[1]["action"]
+    assert rec.gate_log[0]["gain_pct"] >= rec.gate_log[1]["gain_pct"]
+
+
+def test_twin_search_gate_catches_injected_bad_fixes_using_its_evidence() -> None:
+    from src.baselines import run_twin_search
+    from src.eval.truth import TruthEvaluator
+
+    truth, sc = TruthEvaluator(), SCENARIOS["slow_station"]
+    seen = 0
+    for seed in range(1, 7):
+        rec = run_twin_search(sc, seed, SimulatedApprover(bad_rate=1.0, seed=seed))
+        for g in rec.gate_log:
+            if g["injected"]:
+                seen += 1
+                assert truth.action_status(sc.config, g["action"]) == "ok" or not g["approved"]
+    assert seen > 0
