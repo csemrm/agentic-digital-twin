@@ -1,0 +1,42 @@
+{
+  "mode": "gpt-4.1-mini",
+  "n_seeds": 10,
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "bad_rate_stress": 0.5,
+  "settings": {
+    "n_reps": 8,
+    "min_gain_pct": 2.0,
+    "alpha": 0.05,
+    "max_iterations": 3,
+    "max_candidates": 5,
+    "eval_seed_base": 1000
+  },
+  "date": "2026-11-15",
+  "systems": [
+    "rule_based",
+    "toc_heuristic",
+    "twin_search",
+    "single_agent",
+    "multi_agent_no_sim",
+    "multi_agent"
+  ],
+  "experiments": [
+    "clean",
+    "stress",
+    "clean_indep",
+    "stress_indep",
+    "stress_forged",
+    "stress_forged_indep"
+  ]
+}
