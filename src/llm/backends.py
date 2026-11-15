@@ -1,4 +1,4 @@
-"""LLM backends: the real Anthropic API and a deterministic offline mock."""
+"""LLM backends: the real Anthropic and OpenAI APIs and a deterministic offline mock."""
 
 from __future__ import annotations
 
@@ -83,3 +83,40 @@ class AnthropicBackend:
         )
         text = "".join(block.text for block in msg.content if getattr(block, "type", "") == "text")
         return RawCompletion(text, msg.usage.input_tokens, msg.usage.output_tokens)
+
+
+class OpenAIBackend:
+    """Calls the OpenAI Chat Completions API (e.g. ``gpt-4.1-mini``) via the official SDK.
+
+    The ``openai`` package is imported lazily and is an optional dependency
+    (``pip install -e .[openai]``). ``client`` can be injected for tests. JSON mode is
+    requested because every prompt already asks for a single JSON object.
+    """
+
+    cacheable = True
+
+    def __init__(self, model: str, api_key: str | None = None, client: Any = None) -> None:
+        try:
+            import openai
+        except ImportError as exc:
+            raise RuntimeError("the OpenAI backend needs the 'openai' package: pip install -e '.[openai]'") from exc
+
+        self.name = model
+        self._client = client if client is not None else openai.OpenAI(api_key=api_key)
+        self.retryable = (
+            openai.RateLimitError,
+            openai.APIConnectionError,  # includes APITimeoutError
+            openai.InternalServerError,
+        )
+
+    def generate(self, role: str, system: str, prompt: str, payload: dict[str, Any], max_tokens: int) -> RawCompletion:
+        """Send one request and return text plus reported token usage."""
+        resp = self._client.chat.completions.create(
+            model=self.name,
+            max_completion_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        )
+        text = resp.choices[0].message.content or ""
+        usage = resp.usage
+        return RawCompletion(text, getattr(usage, "prompt_tokens", 0) or 0, getattr(usage, "completion_tokens", 0) or 0)
