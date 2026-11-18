@@ -17,10 +17,10 @@
 
 \begin{document}
 
-\title{Verify Before Act: Simulation-Verified Multi-Agent LLM Supervision\\of a Production Line (DRAFT)}
+\title{Verify Before Act: Simulation-Verified Multi-Agent LLM Supervision\\of a Production Line}
 
-\author{\IEEEauthorblockN{\todo{Author names}}
-\IEEEauthorblockA{\todo{Affiliation, email}}}
+\author{\IEEEauthorblockN{Mostafizur Rahman}
+\IEEEauthorblockA{\todo{Affiliation}}}
 
 \maketitle
 
@@ -44,11 +44,14 @@ digital twin, LLM agents, manufacturing, verification, human-in-the-loop, discre
 \end{IEEEkeywords}
 
 \section{Introduction}
-\todo{Motivation paragraph: shop-floor supervision, cost of acting on a wrong recommendation, why LLM agents are
-tempting and risky.}
+A shop-floor supervisor who sees output fall needs to know where the loss comes from and what to change, and
+needs the answer while the shift is still running. Acting on a wrong recommendation has a direct cost: a
+buffer added at the wrong station, or work moved onto a station that is already the constraint, lowers
+output rather than raising it, and the supervisor may only discover this after the shift is lost. Language
+model agents are attractive for this role because they read heterogeneous evidence and explain themselves in
+plain language, but they also produce fluent explanations attached to fixes that do not work.
 
-LLM agents are increasingly proposed for operational decisions. An LLM's explanation can be fluent while its
-fix is ineffective or harmful, and on a production line an unverified change has a direct cost. A digital
+LLM agents are increasingly proposed for operational decisions. A digital
 twin~\cite{grieves2017} offers a way to test a change before it touches the plant. We ask whether a
 multi-agent LLM system that \emph{must} verify each fix in a twin before recommending it is measurably safer
 than agents that do not, and whether it earns its cost against classical alternatives.
@@ -58,7 +61,8 @@ Our contributions are:
   \item A multi-agent supervisor (Monitor, Diagnosis, Candidate proposer, Simulation, human Gate) whose only
         way to change the line is a small typed action set checked by a constraint validator.
   \item An evaluation that scores every fix on independent replications (seeds the agents never see),
-        with ablations (no simulation, single agent) and two strong non-LLM baselines.
+        with ablations (no simulation, single agent) and two strong non-LLM baselines, run with a real LLM
+        over \NRuns{} pipeline runs.
   \item A gate ablation: a gate that trusts presented evidence versus one that re-simulates on its own
         seeds, tested with forged evidence.
   \item An honest negative result: verified multi-agent LLM supervision does not outperform exhaustive twin
@@ -66,12 +70,32 @@ Our contributions are:
 \end{enumerate}
 
 \section{Related Work}
-\todo{Write from verified sources. Do not add citations from memory. Topics: (a) LLM agents and tool use
-(e.g.~ReAct~\cite{yao2023react}); (b) LLM agents in manufacturing / industrial operations; (c) simulation-based
-verification and safe-action filtering for learned controllers; (d) digital twins in manufacturing
-(\cite{grieves2017} as origin); (e) human-in-the-loop approval gates; (f) LLM-as-judge~\cite{zheng2023judge}
-and its known biases; (g) bottleneck detection and line balancing, including the Theory of
-Constraints~\cite{goldratt1984}.}
+\textbf{LLM agents.} ReAct~\cite{yao2023react} interleaves reasoning and acting so that a language model can
+use tools and revise its plan from observations. Our Diagnosis role follows the same pattern of reasoning
+over observations and revising after feedback, but its actions are restricted to a typed set rather than
+free-form tool calls.
+
+\textbf{LLM agents in production systems.} Xia et al.~\cite{xia2023autonomous} build a digital-twin
+description of a modular production system and let LLM agents read it and control equipment through service
+interfaces. There the twin is a knowledge source for the agents. In our setting the twin is a
+\emph{simulator} that the agents must use to test each fix, and the question is how much that verification
+step improves the safety of what reaches the supervisor.
+
+\textbf{Safe action filtering.} Shielding~\cite{alshiekh2018shield} monitors the actions of a learning agent
+and intervenes when an action would violate a specification. Our typed validator plays a similar
+role for constraint violations, and the twin test adds a performance check that a pure constraint filter
+cannot provide: an action can be valid and still lower throughput.
+
+\textbf{Digital twins.} The digital-twin concept originates with Grieves and
+Vickers~\cite{grieves2017}. We use a discrete-event model~\cite{simpy} of a serial line and validate it
+against analytic capacity bounds and Little's law~\cite{little1961}.
+
+\textbf{Classical bottleneck management.} The Theory of Constraints~\cite{goldratt1984} gives simple rules
+for locating and relieving a constraint. We implement these as a strong non-LLM baseline and find it
+competitive.
+
+\textbf{LLM-as-judge.} We score explanation quality with an LLM judge~\cite{zheng2023judge}; such judges have
+documented biases, so we treat these scores as indicative and disclose the limitation.
 
 \section{System}
 \subsection{Digital twin}
@@ -92,7 +116,7 @@ through the same validator, which logs each rejection with its reason.
 \subsection{Agents and verification}
 A LangGraph~\cite{langgraph} pipeline runs Monitor (flags anomalies from KPIs), Diagnosis (bottleneck station
 and fault type), a candidate proposer (up to five typed fixes), and a Simulation agent. The Simulation agent
-runs eight paired replications of each candidate and of the unmodified line on shared seeds. A candidate
+runs \NReps{} paired replications of each candidate and of the unmodified line on shared seeds. A candidate
 \emph{passes} if its mean gain is at least $2\%$ and a one-sided paired $t$-test gives $p<0.05$. Passed
 candidates are ranked by gain and the best is sent to the gate. Rejections feed back into re-diagnosis, with a
 cap of three rounds. Agents observe only measured KPIs and standards, never the scenario label.
@@ -128,7 +152,7 @@ mixed & station 4 MTBF 800\,s / MTTR 400\,s, station 2 at 75\,s & 4 \\
 \emph{Naive rule}: buffer after the busiest station. \emph{TOC rules}: Theory-of-Constraints
 rules~\cite{goldratt1984} on observed KPIs (rebalance if the constraint is slow, maintenance if it is down
 often, else buffer), thresholds fixed a priori. \emph{Twin search}: no LLM and no diagnosis; simulates a grid of
-every valid action with the Simulation agent's test and offers the best verified fix to the gate.
+\TwinGrid{} valid actions with the Simulation agent's test and offers the best verified fix to the gate.
 \emph{Single agent}: one LLM call for diagnosis and fix, no simulation. \emph{Multi-agent, no sim.}: the full
 graph with the Simulation agent replaced by taking the first valid proposal. \emph{Multi-agent + sim.}: the
 proposed system. All face the same gate, validator and round cap and act only on a throughput drop of at least $5\%$.
@@ -142,11 +166,13 @@ taken on the healthy line, and, in the stress experiments, the gate's catch rate
 probability \BadRate{}; in the \emph{forged} variant the bad fix carries the good fix's evidence. Intervals are
 Wilson for proportions and $t$ for means~\cite{wilson1927}, and paired differences use a bootstrap interval over
 (scenario, seed) pairs. All \Nseeds{} observation seeds are paired across systems; fault scenarios give
-\Npairs{} pairs.
+\Npairs{} pairs. In total the six systems and six experiment arms produce \NRuns{} runs and \NReviews{} gate
+reviews.
 
 \subsection{LLM}
 All LLM roles use \Model{} with default sampling and JSON output, with responses cached on disk keyed by
-model and prompt. \todo{Report the Claude run for a second model family.}
+model, system prompt and user prompt. The same model serves as the explanation judge. No second model family
+was evaluated (Section~\ref{sec:limits}).
 
 \section{Results}
 \subsection{Verification before recommending}
@@ -163,9 +189,33 @@ Without verification, the single agent and the no-simulation ablation apply an i
 \IneffSingle\% and \IneffNoSim\% of runs, and both act on the healthy line in every run
 (\FalseAlarmSingle\% and \FalseAlarmNoSim\%). With the Simulation agent the ineffective-fix rate is
 \IneffMulti\% and the false-alarm rate \FalseAlarmMulti\%, and mean throughput gain rises from \GainNoSim\% to
-\GainMulti\%. Bottleneck accuracy is similar for the three LLM systems (\AccSingle--\AccMulti\%), so the
-benefit comes from verification, not from better diagnosis. \todo{Add the per-scenario breakdown and the
-figure discussion.}
+\GainMulti\% (paired difference \DiffNoSim). Bottleneck accuracy is similar for the three LLM systems
+(\AccSingle--\AccMulti\%), so the benefit comes from verification, not from better diagnosis. Against the
+single agent the paired gain difference is \DiffSingle. The single agent also recommends an invalid or
+harmful fix in \InvalidSingle\% of runs, against \InvalidMulti\% for the proposed system. Because the Simulation agent selects among the
+proposer's own candidates, part of the gain reflects selection among candidates, not better proposals.
+
+\subsubsection{Per scenario}
+Tables~\ref{tab:accscn} and~\ref{tab:gainscn} break the results down by scenario. The three LLM systems
+report a fault on the healthy line every time (accuracy \AccScnHealthySingle\% for all three), so only the
+Simulation agent prevents that from becoming an action. The buffer scenario is the hardest for them
+(accuracy \AccScnBufferSingle\% for the single agent and \AccScnBufferMulti\% for multi-agent), while the TOC
+rules and twin search name the right station in every seed. Among the fault scenarios, gains for the
+proposed system are largest in the mixed and breakdown scenarios (\GainScnMixedMulti\% and
+\GainScnBreakdownsMulti\%) and smallest in the buffer scenario (\GainScnBufferMulti\%); in the slow-station
+scenario it gains \GainScnSlowMulti\% against \GainScnSlowToc\% for the TOC rules.
+\begin{table}[t]
+\centering\footnotesize
+\caption{Bottleneck accuracy (\%) by scenario, clean experiment. On the healthy line, correct means reporting no fault.}
+\label{tab:accscn}
+\resizebox{\columnwidth}{!}{\input{generated/tab_acc_scn}}
+\end{table}
+\begin{table}[t]
+\centering\footnotesize
+\caption{Mean throughput gain (\%) by scenario, clean experiment (independent scoring replications).}
+\label{tab:gainscn}
+\resizebox{\columnwidth}{!}{\input{generated/tab_gain_scn}}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -174,13 +224,18 @@ figure discussion.}
 \label{fig:gain}
 \end{figure}
 
+Figure~\ref{fig:gain} shows the same gains with confidence intervals. The intervals of the rule-based, TOC
+and twin-search systems are very narrow or collapse to a point in most scenarios, whereas those of the LLM
+systems are wider.
+
 \subsection{Against strong non-LLM baselines}
 The proposed system does not beat the baselines. Paired over \Npairs{} (scenario, seed) pairs, multi-agent
 minus TOC rules is \DiffToc, and minus exhaustive twin search is \DiffTwin. Twin search spends
 about \TwinSims{} twin simulations per run and no tokens; multi-agent spends about \TokensMulti{} tokens
 per run and tests at most five candidates per round. On this five-station testbed the proposer's shortlist,
 not the twin, limits the multi-agent result. Its remaining advantage is a diagnosis and an explanation, which
-search does not produce. \todo{Discuss when the action space is too large to enumerate.}
+search does not produce: the judge scores the multi-agent explanation \ExplMulti{} out of 5, against
+\ExplTwin{} for twin search and \ExplToc{} for the TOC rules.
 
 \subsection{Does the gate need to trust the evidence?}
 Table~\ref{tab:gate} gives the catch rate over bad recommendations. With honest evidence, the trusting gate
@@ -197,17 +252,48 @@ applied) because the gate itself becomes the verifier.
 \input{generated/tab_gate}
 \end{table*}
 
+Table~\ref{tab:status} splits the honest-evidence, trusting-gate result by why the recommendation was bad.
+Invalid recommendations are caught by every system, because constraint checking is deterministic. Harmful but
+valid recommendations are caught only when twin evidence is shown: \HarmCatchMulti\% for the proposed system
+(n=\HarmNMulti) and \HarmCatchSingle\% for the single agent (n=\HarmNSingle). This follows from how the
+simulated approver is defined, so it verifies the mechanism and is not an independent finding about human
+supervisors.
+\begin{table}[t]
+\centering\small
+\caption{Trusting-gate catch rate (\%) by reason the recommendation was bad, stress experiment (count in parentheses).}
+\label{tab:status}
+\input{generated/tab_status}
+\end{table}
+
+\section{Discussion}
+\textbf{What the twin buys.} Verification removed every ineffective fix and every false alarm for the
+multi-agent system and made its recommendations safe to present, regardless of how good the proposer is.
+That property is a consequence of the verification loop and gate, which is why we regard it as the main result.
+
+\textbf{When the LLM may matter.} On this testbed the action grid has only \TwinGrid{} entries, so exhaustive
+search costs about \TwinSims{} simulations per run and finds larger gains than the LLM's shortlist. We expect
+this to change when the action space grows, for example with more stations, multi-step action sequences or
+continuous parameters, because enumeration cost grows with the grid while an LLM proposer's cost does not;
+we did not test this, and it is the main reason to repeat the study on larger lines.
+
+\textbf{Why the independent gate matters.} A gate that accepts presented evidence is only as trustworthy as
+the process that produced it. An independent gate costs \NReps{} extra paired replications per review and
+removes that dependency.
+
 \section{Limitations}
+\label{sec:limits}
 \begin{itemize}
   \item \textbf{No model mismatch.} The twin that verifies a fix is the simulator that scores it (different
-        seeds). The independent gate removes selection bias and forged evidence, not model error. \todo{Add
-        the mis-specified-twin experiment.}
+        seeds). The independent gate removes selection bias and forged evidence, not model error. A
+        mis-specified-twin experiment exists in the code base but was not run for these results.
   \item \textbf{Synthetic testbed.} One five-station line with four hand-built faults and illustrative
         parameters; no calibration to a real plant.
   \item \textbf{Simulated approver.} The gate is rule-based, never errs and is never persuaded by plausible
-        text. A human-gate study is needed. \todo{Human study with inter-rater agreement.}
-  \item \textbf{One model family, \Nseeds{} seeds.} Confidence intervals are wide for small differences.
-        \todo{Second model family; more seeds.}
+        text. No human-gate study was run, and the blind human-review sheet prepared for explanation quality
+        was not scored.
+  \item \textbf{One model family, \Nseeds{} seeds.} Only \Model{} was evaluated, and confidence intervals are
+        wide for small differences; in particular the single-versus-multi-agent accuracy comparison cannot rule
+        out a meaningful difference in either direction.
   \item \textbf{Explanation quality} is scored by an LLM judge that sees the reference label and has not been
         validated against human scores~\cite{zheng2023judge}.
 \end{itemize}
@@ -215,11 +301,16 @@ applied) because the gate itself becomes the verifier.
 \section{Conclusion}
 Requiring twin verification before recommendation makes LLM supervision measurably safer on this testbed:
 fewer ineffective fixes and no false alarms. It does not make it better than a classical rule or exhaustive
-search, and its gate must not trust the evidence it is shown. \todo{Future work and broader impact.}
+search, and its gate must not trust the evidence it is shown. Future work should run the independent gate
+under a mis-specified twin, collect real supervisor decisions through the dashboard, evaluate more model
+families and seeds, and test larger lines where enumeration is infeasible and a good proposer should matter.
 
 \section*{Reproducibility}
-\todo{Repository link and commit, seeds, cache policy. All numbers in this draft are generated from
-\texttt{results\_real/} by \texttt{paper/make\_tables.py}.}
+All numbers in this paper are generated from the experiment outputs by a script that writes the table and
+macro files included here. Observation seeds are 1--\Nseeds{}, reference seeds 100--104, the Simulation agent
+uses seeds 1000+, scoring uses seeds 2000--2019 and the independent gate uses seeds 3000+, so no component
+sees another's seeds. LLM responses are cached by model and prompt, which makes reruns reproducible.
+\todo{Repository URL and commit hash.}
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}

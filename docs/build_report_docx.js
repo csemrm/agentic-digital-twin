@@ -1,5 +1,5 @@
 // Builds docs/FINAL_REPORT.docx from docs/FINAL_REPORT.md.
-// Usage: NODE_PATH=<dir with node_modules/docx> node docs/build_report_docx.js
+// Usage: NODE_PATH=<dir with node_modules/docx> node docs/build_report_docx.js [input.md] [output.docx]
 const fs = require("fs");
 const path = require("path");
 const {
@@ -8,8 +8,8 @@ const {
   LevelFormat, PageNumber, TableOfContents, PageBreak, TabStopType, VerticalAlign,
 } = require("docx");
 
-const MD = path.join(__dirname, "FINAL_REPORT.md");
-const OUT = path.join(__dirname, "FINAL_REPORT.docx");
+const MD = path.resolve(process.argv[2] || path.join(__dirname, "FINAL_REPORT.md"));
+const OUT = path.resolve(process.argv[3] || path.join(__dirname, "FINAL_REPORT.docx"));
 
 const FONT = "Calibri";
 const NAVY = "1F3864";
