@@ -127,6 +127,10 @@ All six face the same gate, validator, and 3-round cap, and act only on a >= 5% 
 | multi_agent_no_sim | 80.0 [65.2, 89.5] | 72.5 [57.2, 83.9] | 8.1 [5.9, 10.2] | 0.0 | 40.0 [26.3, 55.4] | 3.0 | 2795 | 4.30 |
 | multi_agent | 80.0 [65.2, 89.5] | 72.5 [57.2, 83.9] | 12.3 [10.6, 14.1] | 0.0 | 0.0 [0, 8.8] | 3.1 | 2888 | 4.30 |
 
+![Figure 1. LLM tokens per run by system (real LLM).](../results_real/plots/total_tokens.png)
+
+![Figure 2. Explanation quality (LLM judge, 1-5) by system.](../results_real/plots/expl_quality.png)
+
 ### 6.2 Bottleneck accuracy (%) by scenario
 
 | System | breakdowns | buffer | healthy | mixed | slow_station |
@@ -140,6 +144,8 @@ All six face the same gate, validator, and 3-round cap, and act only on a >= 5% 
 
 The three LLM systems score 0% on the healthy line because they always report a fault; only simulation prevents that from turning into an action (6.5). The `buffer` scenario is the hardest for the LLM systems (30-60%).
 
+![Figure 3. Bottleneck accuracy by system and scenario.](../results_real/plots/station_correct.png)
+
 ### 6.3 Throughput gain (%) by scenario
 
 | System | breakdowns | buffer | healthy | mixed | slow_station |
@@ -151,9 +157,13 @@ The three LLM systems score 0% on the healthy line because they always report a 
 | multi_agent_no_sim | 11.9 | 5.9 | -1.4 | 12.8 | 1.6 |
 | multi_agent | 14.5 | 7.7 | 0.0 | 17.3 | 9.8 |
 
+![Figure 4. Throughput gain (%) by system and scenario, independent replications.](../results_real/plots/gain_pct.png)
+
 ### 6.4 Invalid/harmful and ineffective fixes
 - Invalid/harmful: only `single_agent` produced any (buffer 30%, healthy 20%, mixed 30%), plus `multi_agent_no_sim` on healthy (10%). `multi_agent` produced none.
 - Ineffective (applied fix with independent gain below 2%): `multi_agent` 0% in every scenario; `multi_agent_no_sim` 100% on healthy, 80% on slow_station; `single_agent` 100% on healthy, 70% on buffer; `rule_based` about 100% on every fault scenario.
+
+![Figure 5. Invalid or harmful fix rate by system and scenario.](../results_real/plots/invalid_fix.png)
 
 ### 6.5 False-alarm actions on the healthy line
 
@@ -176,6 +186,8 @@ The three LLM systems score 0% on the healthy line because they always report a 
 | multi_agent | 37 | 100 [90.6, 100] | 100% (n=16) | 100% (n=21) |
 
 Share of stress runs where a bad fix was actually applied: rule_based 20%, toc_heuristic 20%, twin_search 0%, single_agent 38%, multi_agent_no_sim 30%, multi_agent 0%.
+
+![Figure 6. Gate catch rate of bad recommendations by system (stress experiment).](../results_real/plots/catch_rate.png)
 
 ### 6.7 Gate trust: independent re-simulation
 
